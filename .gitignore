@@ -1,0 +1,14 @@
+# Binaries for programs and plugins.
+BUILD/
+
+# Test binary, build with `go test -c`.
+*.test
+
+# Output of the go coverage tool.
+*.out
+
+# Ignore local cache folder.
+.cache
+
+# Ignore docker-in-docker local folder.
+.docker
