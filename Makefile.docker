@@ -1,0 +1,51 @@
+# Set docker BUILDKIT progress type.
+DOCKER_BUILDKIT_PROGRESS := auto
+
+# Set common utilities environs.
+DOCKER_BIN := $(or $(DOCKER_BIN),docker)
+ENV_BIN := $(or $(ENV_BIN),env)
+ID_BIN := $(or $(ID_BIN),id)
+SSH_ADD_BIN := $(or $(SSH_ADD_BIN),ssh-add)
+
+# Default image name.
+IMAGE_NAME ?= $(IMAGE_DEFAULT_NAME)
+
+# Default image tag.
+IMAGE_TAG ?= $(BUILD_VERSION)
+
+# Docker build args for current project.
+IMAGE_BUILD_ARGS = -f Dockerfile -t $(IMAGE_NAME):$(IMAGE_TAG) -t $(IMAGE_NAME):latest
+ifdef DOCKER_BUILD_ARGS
+	IMAGE_BUILD_ARGS += $(foreach arg,$(DOCKER_BUILD_ARGS),--build-arg $(arg))
+endif
+
+# Docker build labels for current project.
+IMAGE_BUILD_LABELS = --label io.k8s.version=$(BUILD_VERSION)
+IMAGE_BUILD_LABELS += --label io.k8s.display-name=$(IMAGE_DISPLAY_NAME)
+IMAGE_BUILD_LABELS += --label io.k8s.description=$(IMAGE_DESCRIPTION)
+ifdef DOCKER_BUILD_LABELS
+	IMAGE_BUILD_LABELS += $(foreach arg,$(DOCKER_BUILD_LABELS),--label $(arg))
+endif
+
+# Print Docker environment configuration.
+.PHONY: docker-info
+docker-info:
+	@echo
+	@echo \# Current user information:
+	@$(ID_BIN)
+	@echo
+	@echo \# SSH-AGENT information:
+	@$(SSH_ADD_BIN) -L
+	@echo
+	@echo \# Docker version information:
+	@$(ENV_BIN) DOCKER_BUILDKIT=1 $(DOCKER_BIN) version
+	@echo
+
+# Build docker image, set additional image tags.
+.PHONY: docker
+docker: docker-info
+	$(ENV_BIN) DOCKER_BUILDKIT=1 DOCKER_CONFIG=$(DOCKER_CONFIG) $(DOCKER_BIN) build \
+	--ssh default \
+	--progress=$(DOCKER_BUILDKIT_PROGRESS) \
+	$(IMAGE_BUILD_ARGS) \
+	$(IMAGE_BUILD_LABELS) .
