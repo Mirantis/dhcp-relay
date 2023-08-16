@@ -38,7 +38,7 @@ This repository contains a DHCPv4 Relay agent written in Go (Golang). This relay
 ### Additional Documentation & Resources
 
 - [Dynamic Host Configuration Protocol basics](https://learn.microsoft.com/en-us/windows-server/troubleshoot/dynamic-host-configuration-protocol-basics)
-- [RFC2131: Dynamic Host Configuration Protoco](https://www.rfc-editor.org/rfc/rfc2131.html)l
+- [RFC2131: Dynamic Host Configuration Protoco](https://www.rfc-editor.org/rfc/rfc2131.html)
 - [RFC3046: DHCP Relay Agent Information Option](https://www.rfc-editor.org/rfc/rfc3046.html)
 - [RFC3396: Encoding Long Options in the DHCPv4](https://www.rfc-editor.org/rfc/rfc3396.html)
 - [RFC3527: Link Selection sub-option for the Relay Agent Information Option for DHCPv4](https://www.rfc-editor.org/rfc/rfc3527.html)
