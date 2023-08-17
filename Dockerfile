@@ -2,7 +2,7 @@
 ARG BUILDER_IMAGE=golang:1.20-alpine
 
 # Image used as base image.
-ARG BASE_IMAGE=alpine:latest
+ARG BASE_IMAGE=gcr.io/distroless/static
 
 # Use builder image to build binaries.
 FROM ${BUILDER_IMAGE} AS builder
@@ -28,7 +28,13 @@ COPY . .
 RUN --mount=type=ssh make GOPROXY=${GOPROXY} all
 
 # Use base image.
-FROM ${BASE_IMAGE}
+FROM ${BASE_IMAGE} AS base
+
+# Use empty image as backing base image.
+FROM scratch
+
+# Copy everything into backing base image from base image.
+COPY --from=base . .
 
 # Set workdir for base image.
 WORKDIR /
