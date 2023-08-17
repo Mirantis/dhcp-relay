@@ -3,9 +3,10 @@ DOCKER_BUILDKIT_PROGRESS := auto
 
 # Set common utilities environs.
 DOCKER_BIN := $(or $(DOCKER_BIN),docker)
-ENV_BIN := $(or $(ENV_BIN),env)
-ID_BIN := $(or $(ID_BIN),id)
 SSH_ADD_BIN := $(or $(SSH_ADD_BIN),ssh-add)
+
+# Build version variables.
+BUILD_VERSION ?= $(shell $(GIT_BIN) describe --always --dirty --broken --abbrev=8)
 
 # Default image name.
 IMAGE_NAME ?= $(IMAGE_DEFAULT_NAME)

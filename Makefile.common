@@ -29,9 +29,6 @@ else
 	GOBIN = $(shell $(GO_BIN) env GOBIN)
 endif
 
-# Build version variables.
-BUILD_VERSION ?= $(shell $(GIT_BIN) describe --always --dirty --broken --abbrev=8)
-
 # Build flags.
 GO_BUILD_ENV = CGO_ENABLED=0 GOOS=linux GOARCH=amd64 GOPROXY=$(GOPROXY)
 GO_BUILD_FLAGS ?= --tags "netgo osusergo static_build"
@@ -88,20 +85,10 @@ lint-n-fix: golangci-lint
 test:
 	$(GO_BIN) test -v -failfast ./...
 
-# Update golang dependencies.
+# Tidy golang dependencies.
 .PHONY: tidy
 tidy:
-	$(TEST_BIN) -d vendor || $(GO_BIN) mod tidy -v -compat=$(GO_MOD_COMPAT_VERSION)
-
-# Update vendor directory.
-.PHONY: vendor
-vendor:
-	$(GO_BIN) mod vendor -v && $(GIT_BIN) status -s
-
-# Verify golang dependencies.
-.PHONY: verify
-verify:
-	$(TEST_BIN) -d vendor || $(GO_BIN) mod verify
+	$(GO_BIN) mod tidy -v -compat=$(GO_MOD_COMPAT_VERSION)
 
 # Create artifacts directory.
 .PHONY: artifacts-dir
