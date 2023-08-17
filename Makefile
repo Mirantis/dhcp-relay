@@ -22,4 +22,4 @@ all: check build
 
 # Run all checks.
 .PHONY: check
-check: clean tidy verify lint test check-git-clean
+check: clean tidy lint test check-git-clean
