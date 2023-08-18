@@ -7,6 +7,7 @@ on:
 
 jobs:
   create-vendor-bump-PR:
+    name: Update Vendor Branch
     runs-on: ubuntu-latest
 
     steps:
