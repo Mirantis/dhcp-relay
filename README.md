@@ -42,6 +42,7 @@ This repository contains a DHCPv4 Relay agent written in Go (Golang). This relay
 - [RFC3046: DHCP Relay Agent Information Option](https://www.rfc-editor.org/rfc/rfc3046.html)
 - [RFC3396: Encoding Long Options in the DHCPv4](https://www.rfc-editor.org/rfc/rfc3396.html)
 - [RFC3527: Link Selection sub-option for the Relay Agent Information Option for DHCPv4](https://www.rfc-editor.org/rfc/rfc3527.html)
+- [RFC5010: Relay Agent Flags Suboption](https://www.rfc-editor.org/rfc/rfc5010.html)
 - [RFC5107: DHCP Server Identifier Override Suboption](https://www.rfc-editor.org/rfc/rfc5107.html)
 
 ### Contribution
