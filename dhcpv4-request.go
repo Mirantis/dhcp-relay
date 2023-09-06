@@ -71,7 +71,6 @@ func HandleDHCPv4GenericRequest(
 
 	dhcp.SetRelayAgentInformationOption(layerDHCPv4, subOpt1)
 
-	dhcp.SetUnicast(layerDHCPv4)
 	layerDHCPv4.RelayHops++
 
 	for _, addr := range addrs {
@@ -106,8 +105,6 @@ func ForwardDHCPv4RelayedRequest(
 	dhcpMessageType string,
 	layerDHCPv4 *layers.DHCPv4,
 ) error {
-	dhcp.SetUnicast(layerDHCPv4)
-
 	buffer := gopacket.NewSerializeBuffer()
 
 	err := gopacket.SerializeLayers(

@@ -72,9 +72,21 @@ func HandleDHCPv4(
 
 		funcDataInLog()
 
-		if err := HandleDHCPv4GenericReplyRaw(cfg, dhcpMessageType, layerDHCPv4); err != nil {
-			cl.Errorf("Error handling DHCPv4-%s relayed message: %v\n",
-				dhcpMessageType, err)
+		bootFileName := dhcp.GetBootFileName(layerDHCPv4)
+		if bootFileName != "" {
+			cl.Debugf("Boot File Name: %s\n", bootFileName)
+		}
+
+		if dhcp.IsUnicast(layerDHCPv4) {
+			if err := HandleDHCPv4GenericReply(cfg, dhcpMessageType, layerDHCPv4, UnicastReply); err != nil {
+				cl.Errorf("Error handling DHCPv4-%s unicast relayed message: %v\n",
+					dhcpMessageType, err)
+			}
+		} else if dhcp.IsBroadcast(layerDHCPv4) {
+			if err := HandleDHCPv4GenericReply(cfg, dhcpMessageType, layerDHCPv4, BroadcastReply); err != nil {
+				cl.Errorf("Error handling DHCPv4-%s broadcast relayed message: %v\n",
+					dhcpMessageType, err)
+			}
 		}
 	}
 }

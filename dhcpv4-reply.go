@@ -14,10 +14,16 @@ import (
 	"code.local/dhcp-relay/specs"
 )
 
-func HandleDHCPv4GenericReplyRaw(
+const (
+	UnicastReply   uint8 = 0
+	BroadcastReply uint8 = 1
+)
+
+func HandleDHCPv4GenericReply(
 	cfg *HandleOptions,
 	dhcpMessageType string,
 	layerDHCPv4 *layers.DHCPv4,
+	replyType uint8,
 ) error {
 	srcIP := layerDHCPv4.RelayAgentIP.To4()
 	if srcIP == nil || srcIP.IsLoopback() || srcIP.Equal(net.IPv4zero) || srcIP.Equal(net.IPv4bcast) {
@@ -61,8 +67,6 @@ func HandleDHCPv4GenericReplyRaw(
 		Flags:    layers.IPv4DontFragment,
 		TTL:      cfg.ReplyTTL,
 		Protocol: layers.IPProtocolUDP,
-		SrcIP:    srcIP.To4(),
-		DstIP:    layerDHCPv4.YourClientIP.To4(),
 	}
 
 	layerUDP := &layers.UDP{
@@ -84,7 +88,17 @@ func HandleDHCPv4GenericReplyRaw(
 		layerDHCPv4.RelayAgentIP = nil
 	}
 
-	dhcp.SetUnicast(layerDHCPv4)
+	if replyType == UnicastReply {
+		layerIPv4.SrcIP = srcIP.To4()
+		layerIPv4.DstIP = layerDHCPv4.YourClientIP.To4()
+
+		dhcp.SetUnicast(layerDHCPv4)
+	} else if replyType == BroadcastReply {
+		layerIPv4.SrcIP = net.IPv4zero
+		layerIPv4.DstIP = net.IPv4bcast
+
+		dhcp.SetBroadcast(layerDHCPv4)
+	}
 
 	buffer := gopacket.NewSerializeBuffer()
 
@@ -124,10 +138,10 @@ func HandleDHCPv4GenericReplyRaw(
 	cl.Infof("%s 0x%x: DHCP-%s [%d], IfIndex=%d, Src=%s, Dst=%s\n",
 		logDataOutPrefix, layerDHCPv4.Xid, dhcpMessageType, layerDHCPv4.Len(), ifIndex,
 		net.JoinHostPort(
-			srcIP.To4().String(), strconv.Itoa(specs.DHCPv4ServerPort),
+			layerIPv4.SrcIP.String(), strconv.Itoa(specs.DHCPv4ServerPort),
 		),
 		net.JoinHostPort(
-			layerDHCPv4.YourClientIP.To4().String(), strconv.Itoa(specs.DHCPv4ClientPort),
+			layerIPv4.DstIP.String(), strconv.Itoa(specs.DHCPv4ClientPort),
 		),
 	)
 

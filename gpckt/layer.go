@@ -1,6 +1,8 @@
 package gpckt
 
 import (
+	"fmt"
+
 	"github.com/gopacket/gopacket"
 	"github.com/gopacket/gopacket/layers"
 )
@@ -59,4 +61,14 @@ func GetDHCPv4(packet gopacket.Packet) *layers.DHCPv4 {
 	}
 
 	return layerDHCPv4
+}
+
+func CopyDHCPv4(layerDHCPv4 *layers.DHCPv4) (*layers.DHCPv4, error) {
+	out := new(layers.DHCPv4)
+
+	if err := out.DecodeFromBytes(layerDHCPv4.Contents, gopacket.NilDecodeFeedback); err != nil {
+		return nil, fmt.Errorf("copy error: %w", err)
+	}
+
+	return out, nil
 }
