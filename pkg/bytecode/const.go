@@ -4,7 +4,7 @@
 package bytecode
 
 import (
-	"code.local/dhcp-relay/specs"
+	"code.local/dhcp-relay/pkg/specs"
 )
 
 const ( // field offsets

@@ -7,7 +7,7 @@ package bytecode
 import (
 	"golang.org/x/sys/unix"
 
-	"code.local/dhcp-relay/specs"
+	"code.local/dhcp-relay/pkg/specs"
 )
 
 // Note that `tcpdump` generates BPF bytecode, which, by default, disregards the Options field in the IPv4 header implicitly.

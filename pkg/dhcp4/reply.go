@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright The dhcp-relay Authors
 
-package main
+package dhcp4
 
 import (
 	"errors"
@@ -13,17 +13,12 @@ import (
 	"github.com/gopacket/gopacket/layers"
 	"golang.org/x/sys/unix"
 
-	"code.local/dhcp-relay/gpckt/dhcp"
-	"code.local/dhcp-relay/sockets"
-	"code.local/dhcp-relay/specs"
+	"code.local/dhcp-relay/pkg/gpckt/dhcp"
+	"code.local/dhcp-relay/pkg/sockets"
+	"code.local/dhcp-relay/pkg/specs"
 )
 
-const (
-	UnicastReply   uint8 = 0
-	BroadcastReply uint8 = 1
-)
-
-func HandleDHCPv4GenericReply(
+func HandleGenericReply(
 	cfg *HandleOptions,
 	dhcpMessageType string,
 	layerDHCPv4 *layers.DHCPv4,
@@ -45,7 +40,7 @@ func HandleDHCPv4GenericReply(
 	}
 
 	for _, el := range subOpts {
-		cl.Debugf("Option 82 -> Sub-option: Type=%d, Len=%d, Data=[% x], ASCII=%s",
+		cfg.Logger.Debugf("Option 82 -> Sub-option: Type=%d, Len=%d, Data=[% x], ASCII=%s",
 			el.Type, el.Length, el.Data, strconv.QuoteToASCII(string(el.Data)))
 	}
 
@@ -138,9 +133,9 @@ func HandleDHCPv4GenericReply(
 		return fmt.Errorf("socket write error: %w", err)
 	}
 
-	cl.Debugf("Sent %d bytes of data to socket\n", n)
+	cfg.Logger.Debugf("Sent %d bytes of data to socket\n", n)
 
-	cl.Infof("%s 0x%x: DHCP-%s [%d], IfIndex=%d, Src=%s, Dst=%s\n",
+	cfg.Logger.Infof("%s 0x%x: DHCP-%s [%d], IfIndex=%d, Src=%s, Dst=%s\n",
 		logDataOutPrefix, layerDHCPv4.Xid, dhcpMessageType, layerDHCPv4.Len(), ifIndex,
 		net.JoinHostPort(
 			layerIPv4.SrcIP.String(), strconv.Itoa(specs.DHCPv4ServerPort),

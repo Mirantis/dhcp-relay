@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright The dhcp-relay Authors
 
-package main
+package dhcp4
 
 import (
 	"errors"
@@ -9,7 +9,7 @@ import (
 
 	"github.com/gopacket/gopacket/layers"
 
-	"code.local/dhcp-relay/specs"
+	"code.local/dhcp-relay/pkg/specs"
 )
 
 func ValidateLayers(

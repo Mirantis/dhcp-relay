@@ -6,7 +6,7 @@ package dhcp
 import (
 	"github.com/gopacket/gopacket/layers"
 
-	"code.local/dhcp-relay/specs"
+	"code.local/dhcp-relay/pkg/specs"
 )
 
 func IsUnicast(layerDHCPv4 *layers.DHCPv4) bool {

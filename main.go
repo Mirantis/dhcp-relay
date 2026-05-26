@@ -16,15 +16,34 @@ import (
 	"github.com/gopacket/gopacket/layers"
 	"golang.org/x/sys/unix"
 
-	"code.local/dhcp-relay/bytecode"
-	"code.local/dhcp-relay/gpckt"
-	"code.local/dhcp-relay/logger"
-	"code.local/dhcp-relay/sockets"
-	"code.local/dhcp-relay/specs"
-	"code.local/dhcp-relay/version"
+	"code.local/dhcp-relay/pkg/bytecode"
+	"code.local/dhcp-relay/pkg/debug"
+	"code.local/dhcp-relay/pkg/dhcp4"
+	"code.local/dhcp-relay/pkg/gpckt"
+	"code.local/dhcp-relay/pkg/logger"
+	"code.local/dhcp-relay/pkg/sockets"
+	"code.local/dhcp-relay/pkg/specs"
+	"code.local/dhcp-relay/pkg/version"
 )
 
-// Note: This code requires CAP_NET_RAW capability.
+const (
+	vcsAbbRevisionNum = 8
+)
+
+var (
+	flagUpstreamDHCPServerAddr string
+
+	flagLogWithoutDatetime bool
+	flagReplyTTL           uint64
+	flagMTU                uint64
+
+	flagDebug           bool
+	flagDebugServerAddr string
+
+	cl *logger.Config
+)
+
+// Note: This project requires CAP_NET_RAW capability.
 
 func main() {
 	flag.StringVar(&flagUpstreamDHCPServerAddr,
@@ -62,7 +81,7 @@ func main() {
 
 	if flagDebug {
 		cl.EnableVerbose()
-		debug(flagDebugServerAddr)
+		debug.Serve(flagDebugServerAddr, cl)
 	} else {
 		cl.DisableVerbose()
 	}
@@ -114,7 +133,8 @@ func main() {
 	}
 	defer pconn.Close()
 
-	cfg := &HandleOptions{
+	cfg := &dhcp4.HandleOptions{
+		Logger:            cl,
 		PacketConn:        pconn,
 		DHCPServerAddress: flagUpstreamDHCPServerAddr,
 		ReplyTTL:          uint8(flagReplyTTL), //nolint:gosec // flagReplyTTL bounded ≤ MaxUint8 above
@@ -146,13 +166,13 @@ func main() {
 		layerDHCPv4 := gpckt.GetDHCPv4(packet)
 
 		//nolint:gosec // flagMTU bounded ≤ MaxUint16 above.
-		err = ValidateLayers(layerEthernet, layerIPv4, layerUDP, layerDHCPv4, uint16(flagMTU))
+		err = dhcp4.ValidateLayers(layerEthernet, layerIPv4, layerUDP, layerDHCPv4, uint16(flagMTU))
 		if err != nil {
 			cl.Debugf("Packet validation error: %s\n", err)
 
 			continue
 		}
 
-		go HandleDHCPv4(cfg, sall, layerEthernet, layerIPv4, layerUDP, layerDHCPv4)
+		go dhcp4.Handle(cfg, sall, layerEthernet, layerIPv4, layerUDP, layerDHCPv4)
 	}
 }

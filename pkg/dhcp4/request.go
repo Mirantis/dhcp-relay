@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright The dhcp-relay Authors
 
-package main
+package dhcp4
 
 import (
 	"fmt"
@@ -14,11 +14,11 @@ import (
 	"golang.org/x/net/ipv4"
 	"golang.org/x/sys/unix"
 
-	"code.local/dhcp-relay/gpckt/dhcp"
-	"code.local/dhcp-relay/specs"
+	"code.local/dhcp-relay/pkg/gpckt/dhcp"
+	"code.local/dhcp-relay/pkg/specs"
 )
 
-func sendDHCPv4ToServer(
+func SendToServer(
 	cfg *HandleOptions,
 	buf []byte,
 ) (laddr, raddr net.Addr, err error) {
@@ -48,12 +48,12 @@ func sendDHCPv4ToServer(
 		return pconn.LocalAddr(), to, err
 	}
 
-	cl.Debugf("Sent %d bytes of data to socket\n", n)
+	cfg.Logger.Debugf("Sent %d bytes of data to socket\n", n)
 
 	return pconn.LocalAddr(), to, nil
 }
 
-func HandleDHCPv4GenericRequest(
+func HandleGenericRequest(
 	cfg *HandleOptions,
 	ifIndex int,
 	dhcpMessageType string,
@@ -69,7 +69,7 @@ func HandleDHCPv4GenericRequest(
 		return fmt.Errorf("invalid Agent Circuit ID sub-option for IfIndex=%d", ifIndex)
 	}
 
-	cl.Debugf("Option 82 -> Sub-option: Type=%d, Len=%d, Data=[% x], ASCII=%s",
+	cfg.Logger.Debugf("Option 82 -> Sub-option: Type=%d, Len=%d, Data=[% x], ASCII=%s",
 		subOpt1.Type, subOpt1.Length, subOpt1.Data, strconv.QuoteToASCII(string(subOpt1.Data)))
 
 	dhcp.SetRelayAgentInformationOption(layerDHCPv4, subOpt1)
@@ -92,10 +92,10 @@ func HandleDHCPv4GenericRequest(
 			return fmt.Errorf("layer encoding error: %w", err)
 		}
 
-		if laddr, raddr, err := sendDHCPv4ToServer(cfg, buffer.Bytes()); err != nil {
-			cl.Errorf("Error sending DHCPv4 relayed message: %v\n", err)
+		if laddr, raddr, err := SendToServer(cfg, buffer.Bytes()); err != nil {
+			cfg.Logger.Errorf("Error sending DHCPv4 relayed message: %v\n", err)
 		} else {
-			cl.Infof("%s 0x%x: DHCP-%s [%d], Src=%s, Dst=%s\n",
+			cfg.Logger.Infof("%s 0x%x: DHCP-%s [%d], Src=%s, Dst=%s\n",
 				logDataOutPrefix, layerDHCPv4.Xid, dhcpMessageType, layerDHCPv4.Len(), laddr, raddr)
 		}
 	}
@@ -103,7 +103,7 @@ func HandleDHCPv4GenericRequest(
 	return nil
 }
 
-func ForwardDHCPv4RelayedRequest(
+func ForwardRelayedRequest(
 	cfg *HandleOptions,
 	dhcpMessageType string,
 	layerDHCPv4 *layers.DHCPv4,
@@ -121,10 +121,10 @@ func ForwardDHCPv4RelayedRequest(
 		return fmt.Errorf("layer encoding error: %w", err)
 	}
 
-	if laddr, raddr, err := sendDHCPv4ToServer(cfg, buffer.Bytes()); err != nil {
-		cl.Errorf("Error sending DHCPv4 relayed message: %v\n", err)
+	if laddr, raddr, err := SendToServer(cfg, buffer.Bytes()); err != nil {
+		cfg.Logger.Errorf("Error sending DHCPv4 relayed message: %v\n", err)
 	} else {
-		cl.Infof("%s 0x%x: DHCP-%s [%d], Src=%s, Dst=%s\n",
+		cfg.Logger.Infof("%s 0x%x: DHCP-%s [%d], Src=%s, Dst=%s\n",
 			logDataOutPrefix, layerDHCPv4.Xid, dhcpMessageType, layerDHCPv4.Len(), laddr, raddr)
 	}
 

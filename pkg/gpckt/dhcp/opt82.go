@@ -6,7 +6,7 @@ package dhcp
 import (
 	"github.com/gopacket/gopacket/layers"
 
-	"code.local/dhcp-relay/specs"
+	"code.local/dhcp-relay/pkg/specs"
 )
 
 const (

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright The dhcp-relay Authors
 
-package main
+package dhcp4
 
 import (
 	"net"

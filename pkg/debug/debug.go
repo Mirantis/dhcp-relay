@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright The dhcp-relay Authors
 
-package main
+package debug
 
 import (
 	"fmt"
@@ -11,6 +11,8 @@ import (
 
 	_ "expvar"
 	_ "net/http/pprof" //nolint:gosec // G108: profiling is opt-in via CLI flag.
+
+	"code.local/dhcp-relay/pkg/logger"
 )
 
 /*
@@ -35,18 +37,18 @@ import (
 		- /debug/metrics                 (runtime/metrics — all supported metrics in plain text)
 */
 
-const defaultServerReadHeaderTimeout = 5 * time.Second
+const ServerReadHeaderTimeout = 5 * time.Second
 
-func debug(addr string) {
+func Serve(addr string, cl *logger.Config) {
 	if addr == "" {
 		return
 	}
 
-	http.HandleFunc("/debug/metrics", runtimeMetricsHandler)
+	http.HandleFunc("/debug/metrics", RuntimeMetricsHandler)
 
 	server := &http.Server{
 		Addr:              addr,
-		ReadHeaderTimeout: defaultServerReadHeaderTimeout,
+		ReadHeaderTimeout: ServerReadHeaderTimeout,
 	}
 
 	go func() {
@@ -57,7 +59,7 @@ func debug(addr string) {
 	}()
 }
 
-func runtimeMetricsHandler(w http.ResponseWriter, _ *http.Request) {
+func RuntimeMetricsHandler(w http.ResponseWriter, _ *http.Request) {
 	descs := metrics.All()
 
 	samples := make([]metrics.Sample, len(descs))
