@@ -19,7 +19,6 @@ import (
 	"code.local/dhcp-relay/pkg/bytecode"
 	"code.local/dhcp-relay/pkg/debug"
 	"code.local/dhcp-relay/pkg/dhcp4"
-	"code.local/dhcp-relay/pkg/gpckt"
 	"code.local/dhcp-relay/pkg/logger"
 	"code.local/dhcp-relay/pkg/sockets"
 	"code.local/dhcp-relay/pkg/specs"
@@ -28,6 +27,9 @@ import (
 
 const (
 	vcsAbbRevisionNum = 8
+
+	// Expected layer-chain depth: Ethernet → IPv4 → UDP → DHCPv4.
+	dhcpLayerChainDepth = 4
 )
 
 var (
@@ -39,6 +41,8 @@ var (
 
 	flagDebug           bool
 	flagDebugServerAddr string
+
+	flagVerifyChecksums bool
 
 	flagVersion bool
 
@@ -61,6 +65,9 @@ func main() {
 		"debug", false, "Enable debug mode.")
 	flag.StringVar(&flagDebugServerAddr,
 		"debug-server", "localhost:8080", "Debug web server address.")
+
+	flag.BoolVar(&flagVerifyChecksums,
+		"verify-checksums", false, "Verify IPv4 and UDP checksums on received packets.")
 
 	flag.BoolVar(&flagVersion,
 		"version", false, "Print binary version and exit.")
@@ -170,20 +177,47 @@ func main() {
 			continue
 		}
 
-		packet := gopacket.NewPacket(buf[:n], layers.LayerTypeEthernet, gopacket.Default)
-		layerEthernet := gpckt.GetEthernet(packet)
-		layerIPv4 := gpckt.GetIPv4(packet)
-		layerUDP := gpckt.GetUDP(packet)
-		layerDHCPv4 := gpckt.GetDHCPv4(packet)
+		var (
+			layerEthernet layers.Ethernet
+			layerIPv4     layers.IPv4
+			layerUDP      layers.UDP
+			layerDHCPv4   layers.DHCPv4
+		)
 
-		//nolint:gosec // flagMTU bounded ≤ MaxUint16 above.
-		err = dhcp4.ValidateLayers(layerEthernet, layerIPv4, layerUDP, layerDHCPv4, uint16(flagMTU))
+		parser := gopacket.NewDecodingLayerParser(
+			layers.LayerTypeEthernet,
+			&layerEthernet, &layerIPv4, &layerUDP, &layerDHCPv4,
+		)
+		parser.IgnoreUnsupported = true
+
+		decoded := make([]gopacket.LayerType, 0, dhcpLayerChainDepth)
+
+		err = parser.DecodeLayers(buf[:n], &decoded)
+		if err != nil {
+			cl.Debugf("Packet decode error: %s\n", err)
+
+			continue
+		}
+
+		if len(decoded) != dhcpLayerChainDepth || decoded[len(decoded)-1] != layers.LayerTypeDHCPv4 {
+			cl.Debugf("Incomplete DHCPv4 layer chain: %v\n", decoded)
+
+			continue
+		}
+
+		err = dhcp4.ValidateLayers(
+			dhcp4.ValidateOptions{
+				MTU:             uint16(flagMTU), //nolint:gosec // flagMTU bounded ≤ MaxUint16 above.
+				VerifyChecksums: flagVerifyChecksums,
+			},
+			&layerEthernet, &layerIPv4, &layerUDP, &layerDHCPv4,
+		)
 		if err != nil {
 			cl.Debugf("Packet validation error: %s\n", err)
 
 			continue
 		}
 
-		go dhcp4.Handle(cfg, sall, layerEthernet, layerIPv4, layerUDP, layerDHCPv4)
+		go dhcp4.Handle(cfg, sall, &layerEthernet, &layerIPv4, &layerUDP, &layerDHCPv4)
 	}
 }

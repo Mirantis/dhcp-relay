@@ -12,12 +12,17 @@ import (
 	"code.local/dhcp-relay/pkg/specs"
 )
 
+type ValidateOptions struct {
+	MTU             uint16
+	VerifyChecksums bool
+}
+
 func ValidateLayers(
+	opts ValidateOptions,
 	layerEthernet *layers.Ethernet,
 	layerIPv4 *layers.IPv4,
 	layerUDP *layers.UDP,
 	layerDHCPv4 *layers.DHCPv4,
-	mtu uint16,
 ) error {
 	if layerEthernet == nil {
 		return errors.New("invalid Ethernet layer data")
@@ -71,8 +76,22 @@ func ValidateLayers(
 		return fmt.Errorf("unexpected size of HardwareLen in DHCPv4 message: %d", layerDHCPv4.HardwareLen)
 	}
 
-	if layerDHCPv4.Len() < specs.DHCPv4MinMessageSize || layerDHCPv4.Len() > mtu {
+	if layerDHCPv4.Len() < specs.DHCPv4MinMessageSize || layerDHCPv4.Len() > opts.MTU {
 		return fmt.Errorf("unexpected size of DHCPv4 message: %d", layerDHCPv4.Len())
+	}
+
+	if opts.VerifyChecksums {
+		if _, res := layerIPv4.VerifyChecksum(); !res.Valid {
+			return fmt.Errorf("invalid IPv4 checksum: got 0x%04x, want 0x%04x", res.Actual, res.Correct)
+		}
+
+		if err := layerUDP.SetNetworkLayerForChecksum(layerIPv4); err != nil {
+			return fmt.Errorf("UDP checksum pseudo-header binding error: %w", err)
+		}
+
+		if _, res := layerUDP.VerifyChecksum(); !res.Valid {
+			return fmt.Errorf("invalid UDP checksum: got 0x%04x, want 0x%04x", res.Actual, res.Correct)
+		}
 	}
 
 	return nil
