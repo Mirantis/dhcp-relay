@@ -5,11 +5,14 @@
 DOCKER_BUILDKIT_PROGRESS := auto
 
 # Set common utilities environs.
+DATE_BIN := $(or $(DATE_BIN),date)
 DOCKER_BIN := $(or $(DOCKER_BIN),docker)
 SSH_ADD_BIN := $(or $(SSH_ADD_BIN),ssh-add)
 
 # Build version variables.
 BUILD_VERSION ?= $(shell $(GIT_BIN) describe --always --dirty --broken --abbrev=8)
+BUILD_REVISION ?= $(shell $(GIT_BIN) rev-parse HEAD 2>/dev/null)
+BUILD_DATE ?= $(shell $(DATE_BIN) -u +%Y-%m-%dT%H:%M:%SZ)
 
 # Default image name.
 IMAGE_NAME ?= $(IMAGE_DEFAULT_NAME)
@@ -23,12 +26,32 @@ ifdef DOCKER_BUILD_ARGS
 	IMAGE_BUILD_ARGS += $(foreach arg,$(DOCKER_BUILD_ARGS),--build-arg $(arg))
 endif
 
-# Docker build labels for current project.
-IMAGE_BUILD_LABELS = --label io.k8s.version=$(BUILD_VERSION)
-IMAGE_BUILD_LABELS += --label io.k8s.display-name=$(IMAGE_DISPLAY_NAME)
-IMAGE_BUILD_LABELS += --label io.k8s.description=$(IMAGE_DESCRIPTION)
+# OCI image metadata (https://github.com/opencontainers/image-spec/blob/main/annotations.md).
+OCI_IMAGE_TITLE := $(IMAGE_DISPLAY_NAME)
+OCI_IMAGE_DESCRIPTION := $(IMAGE_DESCRIPTION)
+OCI_IMAGE_VERSION := $(BUILD_VERSION)
+OCI_IMAGE_REVISION := $(BUILD_REVISION)
+OCI_IMAGE_CREATED := $(BUILD_DATE)
+OCI_IMAGE_LICENSES := Apache-2.0
+
+IMAGE_BUILD_LABELS = --label org.opencontainers.image.title=$(OCI_IMAGE_TITLE)
+IMAGE_BUILD_LABELS += --label org.opencontainers.image.description=$(OCI_IMAGE_DESCRIPTION)
+IMAGE_BUILD_LABELS += --label org.opencontainers.image.version=$(OCI_IMAGE_VERSION)
+IMAGE_BUILD_LABELS += --label org.opencontainers.image.revision=$(OCI_IMAGE_REVISION)
+IMAGE_BUILD_LABELS += --label org.opencontainers.image.created=$(OCI_IMAGE_CREATED)
+IMAGE_BUILD_LABELS += --label org.opencontainers.image.licenses=$(OCI_IMAGE_LICENSES)
 ifdef DOCKER_BUILD_LABELS
 	IMAGE_BUILD_LABELS += $(foreach arg,$(DOCKER_BUILD_LABELS),--label $(arg))
+endif
+
+IMAGE_BUILD_ANNOTATIONS = --annotation org.opencontainers.image.title=$(OCI_IMAGE_TITLE)
+IMAGE_BUILD_ANNOTATIONS += --annotation org.opencontainers.image.description=$(OCI_IMAGE_DESCRIPTION)
+IMAGE_BUILD_ANNOTATIONS += --annotation org.opencontainers.image.version=$(OCI_IMAGE_VERSION)
+IMAGE_BUILD_ANNOTATIONS += --annotation org.opencontainers.image.revision=$(OCI_IMAGE_REVISION)
+IMAGE_BUILD_ANNOTATIONS += --annotation org.opencontainers.image.created=$(OCI_IMAGE_CREATED)
+IMAGE_BUILD_ANNOTATIONS += --annotation org.opencontainers.image.licenses=$(OCI_IMAGE_LICENSES)
+ifdef DOCKER_BUILD_ANNOTATIONS
+	IMAGE_BUILD_ANNOTATIONS += $(foreach arg,$(DOCKER_BUILD_ANNOTATIONS),--annotation $(arg))
 endif
 
 # Print Docker environment configuration.
@@ -42,14 +65,19 @@ docker-info:
 	@$(SSH_ADD_BIN) -L
 	@echo
 	@echo \# Docker version information:
-	@$(ENV_BIN) DOCKER_BUILDKIT=1 $(DOCKER_BIN) version
+	@$(DOCKER_BIN) version
+	@echo
+	@echo \# Docker buildx version information:
+	@$(DOCKER_BIN) buildx version
 	@echo
 
 # Build docker image, set additional image tags.
 .PHONY: docker
 docker: docker-info
-	$(ENV_BIN) DOCKER_BUILDKIT=1 DOCKER_CONFIG=$(DOCKER_CONFIG) $(DOCKER_BIN) build \
+	$(ENV_BIN) DOCKER_CONFIG=$(DOCKER_CONFIG) $(DOCKER_BIN) buildx build \
 	--ssh default \
 	--progress=$(DOCKER_BUILDKIT_PROGRESS) \
+	--load \
 	$(IMAGE_BUILD_ARGS) \
-	$(IMAGE_BUILD_LABELS) .
+	$(IMAGE_BUILD_LABELS) \
+	$(IMAGE_BUILD_ANNOTATIONS) .
