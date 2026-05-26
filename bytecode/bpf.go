@@ -1,4 +1,7 @@
-//nolint:gomnd // pregenerated BPF bytecode with static jump offsets
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright The dhcp-relay Authors
+
+//nolint:mnd // pregenerated BPF bytecode with static jump offsets
 package bytecode
 
 import (
@@ -9,7 +12,8 @@ import (
 
 // Note that `tcpdump` generates BPF bytecode, which, by default, disregards the Options field in the IPv4 header implicitly.
 // As such, it is necessary to add an explicit rule to exclude frames that contain a variable-sized Options field in the IPv4 header.
-// The value of the IHL (Internet Header Length) field exceeding 5 indicates that there is a variable-sized Options field present in the IPv4 header.
+// The value of the IHL (Internet Header Length) field exceeding 5 indicates that there is a variable-sized Options field
+// present in the IPv4 header.
 // The following PCAP filter rule adds this check: `(not (ip[0] & 0x0F > 5))`.
 
 // tcpdump -ddd 'ip and (not (ip[0] & 0x0F > 5)) and udp and (dst port 67) and (len >= 244) and (len <= 1500)' -s 1500.

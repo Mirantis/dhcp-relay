@@ -1,7 +1,11 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright The dhcp-relay Authors
+
 package dhcp
 
 import (
-	"sort"
+	"cmp"
+	"slices"
 	"strings"
 
 	"github.com/gopacket/gopacket/layers"
@@ -43,27 +47,24 @@ func IsOption(option layers.DHCPOption) bool {
 }
 
 func GetOption(layerDHCPv4 *layers.DHCPv4, optionType layers.DHCPOpt) layers.DHCPOption {
-	var specificOption layers.DHCPOption
-
 	for _, opt := range layerDHCPv4.Options {
 		if opt.Type == optionType {
-			specificOption = opt
-
-			break
+			return opt
 		}
 	}
 
-	return specificOption
+	return layers.DHCPOption{}
 }
 
 func DeleteOption(layerDHCPv4 *layers.DHCPv4, optionType layers.DHCPOpt) {
-	for k, opt := range layerDHCPv4.Options {
-		if opt.Type == optionType {
-			layerDHCPv4.Options = append(layerDHCPv4.Options[:k], layerDHCPv4.Options[k+1:]...)
-
-			return
-		}
+	idx := slices.IndexFunc(layerDHCPv4.Options, func(opt layers.DHCPOption) bool {
+		return opt.Type == optionType
+	})
+	if idx < 0 {
+		return
 	}
+
+	layerDHCPv4.Options = slices.Delete(layerDHCPv4.Options, idx, idx+1)
 }
 
 func SetOption(layerDHCPv4 *layers.DHCPv4, newOption layers.DHCPOption) {
@@ -77,8 +78,8 @@ func SetOption(layerDHCPv4 *layers.DHCPv4, newOption layers.DHCPOption) {
 
 	layerDHCPv4.Options = append(layerDHCPv4.Options, newOption)
 
-	sort.Slice(layerDHCPv4.Options, func(i, j int) bool {
-		return layerDHCPv4.Options[i].Type < layerDHCPv4.Options[j].Type
+	slices.SortFunc(layerDHCPv4.Options, func(a, b layers.DHCPOption) int {
+		return cmp.Compare(a.Type, b.Type)
 	})
 }
 

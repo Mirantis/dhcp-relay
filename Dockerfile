@@ -1,14 +1,22 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright The dhcp-relay Authors
+
 # Image used to build binaries.
-ARG BUILDER_IMAGE=golang:1.20-alpine
+ARG BUILDER_IMAGE=golang:1.26-alpine
 
 # Image used as base image.
 ARG BASE_IMAGE=gcr.io/distroless/static
 
-# Use builder image to build binaries.
-FROM ${BUILDER_IMAGE} AS builder
+# Use builder image to build binaries. Pinned to BUILDPLATFORM so cross-arch
+# builds compile natively and let Go produce the TARGETARCH binary.
+FROM --platform=$BUILDPLATFORM ${BUILDER_IMAGE} AS builder
 
 # Configure golang module proxy URI.
 ARG GOPROXY=proxy.golang.org
+
+# BuildKit-provided target platform args, used to drive Go cross-compilation.
+ARG TARGETOS
+ARG TARGETARCH
 
 # Set separate workdir for builder image.
 WORKDIR /workspace
@@ -25,7 +33,7 @@ RUN --mount=type=ssh env GOPROXY=${GOPROXY} go mod download -x || true
 COPY . .
 
 # Build binaries.
-RUN --mount=type=ssh make GOPROXY=${GOPROXY} all
+RUN --mount=type=ssh make GOPROXY=${GOPROXY} GOOS=${TARGETOS} GOARCH=${TARGETARCH} all
 
 # Use base image.
 FROM ${BASE_IMAGE} AS base

@@ -1,4 +1,6 @@
-//nolint:wrapcheck // return all errors from function wrappers unwrapped
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright The dhcp-relay Authors
+
 package sockets
 
 import (
@@ -14,11 +16,13 @@ func ControlReuseAddrAndPort(_, _ string, c syscall.RawConn) error {
 	var opErr error
 
 	f := func(fd uintptr) {
+		//nolint:gosec // FDs returned by the Go runtime fit in int on all supported platforms.
 		opErr = unix.SetsockoptInt(int(fd), unix.SOL_SOCKET, unix.SO_REUSEADDR, 1)
 		if opErr != nil {
 			return
 		}
 
+		//nolint:gosec // FDs returned by the Go runtime fit in int on all supported platforms.
 		opErr = unix.SetsockoptInt(int(fd), unix.SOL_SOCKET, unix.SO_REUSEPORT, 1)
 		if opErr != nil {
 			return

@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright The dhcp-relay Authors
+
 package specs
 
 // https://en.wikipedia.org/wiki/User_Datagram_Protocol

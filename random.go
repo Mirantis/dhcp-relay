@@ -1,18 +1,19 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright The dhcp-relay Authors
+
 package main
 
 import (
 	"crypto/rand"
 	"encoding/binary"
-	"unsafe"
 )
 
 func GenerateRandomIPv4ID() uint16 {
-	b := make([]byte, unsafe.Sizeof(uint16(0))) //nolint:makezero // C-style for bytes slices is fine here
+	var b [2]byte
 
-	_, err := rand.Read(b)
-	if err != nil {
+	if _, err := rand.Read(b[:]); err != nil {
 		return GenerateRandomIPv4ID()
 	}
 
-	return binary.BigEndian.Uint16(b)
+	return binary.BigEndian.Uint16(b[:])
 }

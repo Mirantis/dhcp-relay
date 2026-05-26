@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright The dhcp-relay Authors
+
 package dhcp
 
 import (
@@ -15,7 +18,7 @@ func CreateAgentCircuitIDSubOption(value int) layers.DHCPOption {
 
 	return layers.DHCPOption{
 		Type:   AgentCircuitIDSubOption,
-		Length: byte(len(data)),
+		Length: byte(len(data)), //nolint:gosec // strconv.Itoa of an int produces at most ~20 bytes.
 		Data:   data,
 	}
 }

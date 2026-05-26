@@ -33,7 +33,7 @@ This repository contains a DHCPv4 Relay agent written in Go (Golang). This relay
 
 - No-op `PacketConn` listner on DHCPv4 Server port *(`Severity`: none)*.
 - Some unrelated network traffic comes through to the application before BPF gets applied to the listening socket *(`Severity`: annoyance)*.
-- Tested only on `linux,amd64` platform *(`Severity`: low)*.
+- Tested on `linux/amd64` and `linux/arm64` platforms *(`Severity`: low)*.
 
 ### Additional Documentation & Resources
 

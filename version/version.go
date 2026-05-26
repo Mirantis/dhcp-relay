@@ -1,7 +1,9 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright The dhcp-relay Authors
+
 package version
 
 import (
-	"fmt"
 	"runtime/debug"
 	"strings"
 )
@@ -38,7 +40,7 @@ func VCS(abbRevisionNum uint8) string {
 	var rev string
 
 	if strings.EqualFold(vcsModified, "true") {
-		rev = fmt.Sprintf("%s-dirty", abbRevision)
+		rev = abbRevision + "-dirty"
 	} else {
 		rev = abbRevision
 	}

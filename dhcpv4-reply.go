@@ -1,6 +1,10 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright The dhcp-relay Authors
+
 package main
 
 import (
+	"errors"
 	"fmt"
 	"net"
 	"strconv"
@@ -27,17 +31,17 @@ func HandleDHCPv4GenericReply(
 ) error {
 	srcIP := layerDHCPv4.RelayAgentIP.To4()
 	if srcIP == nil || srcIP.IsLoopback() || srcIP.Equal(net.IPv4zero) || srcIP.Equal(net.IPv4bcast) {
-		return fmt.Errorf("invalid Relay Agent address value")
+		return errors.New("invalid Relay Agent address value")
 	}
 
 	opt82 := dhcp.GetRelayAgentInformationOption(layerDHCPv4)
 	if !dhcp.IsOption(opt82) {
-		return fmt.Errorf("no Relay Agent Information")
+		return errors.New("no Relay Agent Information")
 	}
 
 	subOpts := dhcp.DecodeRelayAgentInformationOption(opt82)
 	if len(subOpts) == 0 {
-		return fmt.Errorf("no Relay Agent Information")
+		return errors.New("no Relay Agent Information")
 	}
 
 	for _, el := range subOpts {
@@ -47,7 +51,7 @@ func HandleDHCPv4GenericReply(
 
 	ifIndex := dhcp.ExtractAgentCircuitIDSubOptionData(subOpts...)
 	if ifIndex == 0 {
-		return fmt.Errorf("invalid Agent Circuit ID sub-option value")
+		return errors.New("invalid Agent Circuit ID sub-option value")
 	}
 
 	ifi, err := net.InterfaceByIndex(ifIndex)
@@ -88,12 +92,13 @@ func HandleDHCPv4GenericReply(
 		layerDHCPv4.RelayAgentIP = nil
 	}
 
-	if replyType == UnicastReply {
+	switch replyType {
+	case UnicastReply:
 		layerIPv4.SrcIP = srcIP.To4()
 		layerIPv4.DstIP = layerDHCPv4.YourClientIP.To4()
 
 		dhcp.SetUnicast(layerDHCPv4)
-	} else if replyType == BroadcastReply {
+	case BroadcastReply:
 		layerIPv4.SrcIP = net.IPv4zero
 		layerIPv4.DstIP = net.IPv4bcast
 

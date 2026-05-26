@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright The dhcp-relay Authors
+
 name: Update Vendor Branch
 
 on:
@@ -12,12 +15,12 @@ jobs:
 
     steps:
     - name: Setup Golang
-      uses: actions/setup-go@v4
+      uses: actions/setup-go@v6
       with:
-        go-version: '1.20'
+        go-version: '1.26'
 
     - name: Checkout 'main' branch
-      uses: actions/checkout@v3
+      uses: actions/checkout@v6
       with:
         ref: main
         path: .main
@@ -33,7 +36,7 @@ jobs:
         go mod vendor
 
     - name: Checkout 'vendor' branch
-      uses: actions/checkout@v3
+      uses: actions/checkout@v6
       with:
         ref: vendor
         path: .vendor
@@ -45,7 +48,7 @@ jobs:
         cp -a .main/vendor .vendor/
 
     - name: Create Pull Request
-      uses: peter-evans/create-pull-request@v5
+      uses: peter-evans/create-pull-request@v8
       with:
         token: ${{ secrets.GITHUB_TOKEN }}
         path: .vendor

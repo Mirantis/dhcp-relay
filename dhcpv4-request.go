@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright The dhcp-relay Authors
+
 package main
 
 import (
@@ -28,7 +31,7 @@ func sendDHCPv4ToServer(
 		),
 	)
 	if err != nil {
-		return nil, nil, err //nolint:wrapcheck // pass error unwrapped
+		return nil, nil, err
 	}
 
 	pconn := ipv4.NewPacketConn(cfg.PacketConn)

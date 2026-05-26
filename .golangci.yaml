@@ -1,280 +1,195 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright The dhcp-relay Authors
+#
+# [v2.10.1] https://golangci-lint.run/docs/linters/configuration/
+version: "2"
 run:
-  deadline: 5m
-  skip-dirs:
-    - vendor/.*
-  skip-files:
-    # ignore K8s specific object declaration
-    - api/?.*/groupversion_info.go
-    - api/?.*/object_.*.go
-
-# [v1.53.3] https://golangci-lint.run/usage/configuration/
-linters-settings:
-  exhaustive:
-    default-signifies-exhaustive: true
-
-  forbidigo:
-    forbid:
-      - ^print\.*$
-
-  funlen:
-    lines: -1
-    statements: 160
-
-  gci:
-    sections:
-      - standard
-      - default
-      - prefix(code.local)
-
-  gocritic:
-    enabled-tags:
-      - diagnostic
-      - style
-    enabled-checks:
-      - appendCombine
-      - equalFold
-      - preferDecodeRune
-      - preferFprint
-      - preferStringWriter
-      - preferWriteByte
-      - sliceClear
-      - stringXbytes
-    disabled-checks:
-      - whyNoLint
-      - commentedOutCode
-
-  godot:
-    scope: toplevel
-    period: true
-    capital: true
-
-  gofumpt:
-    lang-version: "1.20"
-    extra-rules: true
-
-  gosec:
-    excludes:
-      - G401 # Use of weak cryptographic primitive
-      - G501 # Blocklisted import crypto/md5: weak cryptographic primitive
-      - G505 # Blocklisted import crypto/sha1: weak cryptographic primitive
-
-  gosimple:
-    go: "1.20"
-
-  govet:
-    check-shadowing: true
-    enable-all: true
-
-  lll:
-    line-length: 200
-
-  maintidx:
-    under: 20
-
-  makezero:
-    always: true
-
-  misspell:
-    locale: US
-
-  nolintlint:
-    allow-leading-space: false
-    require-explanation: true
-    require-specific: true
-
-  prealloc:
-    for-loops: true
-
-  staticcheck:
-    go: "1.20"
-
-  stylecheck:
-    go: "1.20"
-
-  tagliatelle:
-    case:
-      use-field-name: true
-      rules:
-        json: goCamel
-        yaml: goCamel
-
-# [v1.3.2] https://github.com/mgechev/revive/tree/v1.3.2#available-rules
-  revive:
-    severity: warning
-    rules:
-#     - name: add-constant            # <=> gomnd
-#     - name: banned-characters
-#     - name: cognitive-complexity    # <=> gocognit
-#     - name: cyclomatic              # <=> gocyclo, cyclop
-#     - name: file-header             # <=> goheader
-#     - name: function-length         # <=> funlen
-#     - name: imports-blacklist       # <=> depguard
-#     - name: line-length-limit       # <=> lll
-#     - name: max-public-structs
-#     - name: package-comments        # no config
-#     - name: string-format
-#     - name: use-any                 # no config
-      - name: argument-limit
-        arguments: 8
-      - name: atomic                  # no config
-      - name: bare-return             # no config
-      - name: blank-imports           # no config
-      - name: bool-literal-in-expr    # no config
-      - name: call-to-gc              # no config
-      - name: comment-spacings
-        arguments: ["nolint"]
-      - name: confusing-naming        # no config
-      - name: confusing-results       # no config
-      - name: constant-logical-expr   # no config
-      - name: context-as-argument
-        arguments: [{allowTypesBefore = "*testing.T"}]
-      - name: context-keys-type       # no config
-      - name: datarace                # no config
-      - name: deep-exit               # no config
-      - name: defer
-      - name: dot-imports             # no config
-      - name: duplicated-imports      # no config
-      - name: early-return            # no config
-      - name: empty-block             # no config
-      - name: empty-lines             # no config
-      - name: error-naming            # no config
-      - name: error-return            # no config
-      - name: error-strings           # no config
-      - name: errorf                  # no config
-      - name: exported
-        arguments: ["checkPrivateReceivers", "sayRepetitiveInsteadOfStutters"]
-      - name: flag-parameter          # no config
-      - name: function-result-limit
-        arguments: 4
-      - name: get-return              # no config
-      - name: identical-branches      # no config
-      - name: if-return               # no config
-      - name: import-shadowing        # no config
-      - name: increment-decrement     # no config
-      - name: indent-error-flow       # no config
-      - name: modifies-parameter      # no config
-      - name: modifies-value-receiver # no config
-      - name: nested-structs          # no config
-      - name: optimize-operands-order # no config
-      - name: range                   # no config
-      - name: range-val-address       # no config
-      - name: range-val-in-closure    # no config
-      - name: receiver-naming         # no config
-      - name: redefines-builtin-id    # no config
-      - name: string-of-int           # no config
-      - name: struct-tag              # no config
-      - name: superfluous-else        # no config
-      - name: time-equal              # no config
-      - name: time-naming             # no config
-      - name: unconditional-recursion # no config
-      - name: unexported-naming       # no config
-      - name: unexported-return       # no config
-      - name: unhandled-error
-        arguments: ["fmt.Printf", "fmt.Println", "fmt.Print"]
-      - name: unnecessary-stmt        # no config
-      - name: unreachable-code        # no config
-      - name: unused-parameter        # no config
-      - name: unused-receiver         # no config
-      - name: useless-break           # no config
-      - name: var-declaration         # no config
-      - name: var-naming
-      - name: waitgroup-by-value      # no config
-
+  go: "1.25"
 linters:
-  disable-all: true
+  default: none
   enable:
-  # - cyclop                        # <=> cyclomatic, gocyclo
-  # - depguard                      # <=> imports-blacklist
-  # - dupl
-  # - errchkjson
-  # - exhaustruct
-  # - gocognit                      # <=> cognitive-complexity
-  # - gocyclo                       # <=> cyclomatic, cyclop
-  # - goerr113
-  # - gofmt                         # <=> gofumpt
-  # - goheader                      # <=> file-header
-  # - goimports                     # <=> gofumpt/gofmt && gci
-  # - gomoddirectives
-  # - gomodguard
-  # - grouper
-  # - importas
-  # - interfacebloat
-  # - ireturn
-  # - musttag
-  # - nilnil
-  # - nonamedreturns                # no config
-  # - testableexamples
-  # - varnamelen
-  # - whitespace
-    - asasalint                     # sane default config
-    - asciicheck                    # no config
-    - bidichk                       # sane default config
-    - bodyclose                     # no config
-    - containedctx                  # no config
-    - contextcheck                  # no config
-    - decorder                      # sane default config
-    - dogsled                       # sane default config
-    - dupword                       # sane default config
-    - durationcheck                 # no config
-    - errcheck                      # sane default config
-    - errname                       # no config
-    - errorlint                     # sane default config
-    - execinquery                   # no config
+    - asasalint
+    - asciicheck
+    - bidichk
+    - bodyclose
+    - canonicalheader
+    - containedctx
+    - contextcheck
+    - copyloopvar
+    - durationcheck
+    - dupword
+    - errcheck
+    - errchkjson
+    - errname
+    - errorlint
     - exhaustive
-    - exportloopref                 # no config
-    - forbidigo
-    - forcetypeassert               # no config
-    - funlen                        # <=> function-length
-    - gci
-    - ginkgolinter                  # sane default config
-    - gocheckcompilerdirectives     # no config
-    - gochecknoglobals              # no config
-    - gochecknoinits                # no config
-    - goconst                       # sane default config
+    - exptostd
+    - fatcontext
+    - ginkgolinter
+    - gocheckcompilerdirectives
+    - goconst
     - gocritic
     - godot
-    - godox                         # sane default config
-    - gofumpt
-    - gomnd                         # sane default config, <=> add-constant
-    - goprintffuncname              # no config
+    - goprintffuncname
     - gosec
-    - gosimple
     - govet
-    - ineffassign                   # no config
-    - lll                           # <=> line-length-limit
-    - loggercheck                   # sane default config
-    - maintidx
+    - iface
+    - inamedparam
+    - ineffassign
+    - intrange
+    - loggercheck
     - makezero
+    - mirror
     - misspell
-    - nakedret                      # sane default config
-    - nestif                        # sane default config
-    - nilerr                        # no config
-    - nlreturn                      # sane default config
-    - noctx                         # no config
-    - nolintlint
-    - nosprintfhostport             # no config
-    - paralleltest                  # no config
-    - prealloc                      # sane default config
-    - predeclared                   # sane default config
-    - promlinter                    # sane default config
-    - reassign                      # sane default config
+    - mnd
+    - nestif
+    - nilerr
+    - nilnesserr
+    - noctx
+    - nosprintfhostport
+    - perfsprint
+    - prealloc
+    - predeclared
+    - protogetter
+    - reassign
+    - recvcheck
     - revive
-    - rowserrcheck                  # sane default config
-    - sqlclosecheck                 # no config
+    - rowserrcheck
+    - sloglint
+    - spancheck
+    - sqlclosecheck
     - staticcheck
-    - stylecheck
-    - tagalign                      # sane default config
-    - tagliatelle
-    - tenv                          # sane default config
-    - testpackage                   # sane default config
-    - thelper                       # sane default config
-    - tparallel                     # no config
-    - typecheck                     # no config
-    - unconvert                     # no config
-    - unparam                       # sane default config
+    - tagalign
+    - testifylint
+    - testpackage
+    - thelper
+    - unconvert
+    - unparam
+    - unqueryvet
     - unused
-    - usestdlibvars                 # sane default config
-    - wastedassign                  # no config
-    - wrapcheck                     # sane default config
-    - wsl                           # sane default config
-    - zerologlint                   # no config
+    - usestdlibvars
+    - usetesting
+    - wastedassign
+    - zerologlint
+  settings:
+    exhaustive:
+      default-signifies-exhaustive: true
+    gocritic:
+      enabled-tags:
+        - diagnostic
+        - performance
+      settings:
+        hugeParam:
+          sizeThreshold: 128
+    godot:
+      scope: toplevel
+      capital: true
+      period: true
+      exclude:
+        - "SPDX-License-Identifier"
+        - "SPDX-FileCopyrightText"
+        - "\\+groupName="
+    gosec:
+      severity: medium
+      confidence: medium
+      config:
+        global:
+          nosec: true
+    govet:
+      enable-all: true
+    misspell:
+      locale: US
+    prealloc:
+      simple: true
+      range-loops: true
+      for-loops: true
+    revive:
+      severity: warning
+      rules:
+        - name: bool-literal-in-expr
+        - name: call-to-gc
+        - name: confusing-results
+        - name: context-keys-type
+        - name: datarace
+        - name: deep-exit
+        - name: defer
+        - name: early-return
+        - name: empty-block
+        - name: epoch-naming
+        - name: error-return
+        - name: error-strings
+        - name: errorf
+        - name: forbidden-call-in-wg-go
+        - name: get-return
+        - name: identical-branches
+        - name: identical-ifelseif-branches
+        - name: identical-ifelseif-conditions
+        - name: identical-switch-branches
+        - name: identical-switch-conditions
+        - name: if-return
+        - name: increment-decrement
+        - name: indent-error-flow
+        - name: inefficient-map-lookup
+        - name: line-length-limit
+          arguments:
+            - 140
+        - name: max-control-nesting
+        - name: modifies-parameter
+        - name: modifies-value-receiver
+        - name: nested-structs
+        - name: package-directory-mismatch
+        - name: redundant-build-tag
+        - name: redundant-import-alias
+        - name: superfluous-else
+        - name: time-date
+        - name: time-equal
+        - name: time-naming
+        - name: unchecked-type-assertion
+          arguments:
+            - acceptIgnoredAssertionResult: true
+        - name: unconditional-recursion
+        - name: unexported-naming
+        - name: unexported-return
+        - name: unnecessary-format
+        - name: unnecessary-if
+        - name: unnecessary-stmt
+        - name: unsecure-url-scheme
+        - name: unused-receiver
+        - name: use-any
+        - name: use-errors-new
+        - name: use-fmt-print
+        - name: use-slices-sort
+        - name: use-waitgroup-go
+        - name: useless-break
+        - name: useless-fallthrough
+        - name: var-declaration
+  exclusions:
+    generated: lax
+    presets:
+      - std-error-handling
+    rules:
+      # gosec: test code uses insecure TLS/SSH configs by design.
+      - linters:
+          - gosec
+        path: _test\.go
+    paths:
+      - vendor/.*
+      - zz_generated\.deepcopy\.go
+formatters:
+  enable:
+    - gci
+    - gofumpt
+  settings:
+    gci:
+      sections:
+        - standard
+        - default
+        - blank
+        - localmodule
+    gofumpt:
+      extra-rules: true
+  exclusions:
+    generated: lax
+    paths:
+      - vendor/.*
+      - zz_generated\.deepcopy\.go

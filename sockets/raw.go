@@ -1,8 +1,10 @@
-//nolint:wrapcheck // return all errors from `unix.*` unwrapped
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright The dhcp-relay Authors
+
 package sockets
 
 import (
-	"fmt"
+	"errors"
 	"net"
 
 	"golang.org/x/sys/unix"
@@ -41,7 +43,7 @@ func (r *Raw) Bind(ifIndex int, hwAddr net.HardwareAddr, protocol uint16) error 
 	}
 
 	if hwAddr != nil {
-		sa.Halen = uint8(len(hwAddr))
+		sa.Halen = uint8(len(hwAddr)) //nolint:gosec // MAC length is 6, fits uint8.
 		copy(sa.Addr[:], hwAddr)
 	}
 
@@ -54,7 +56,7 @@ func (r *Raw) AttachBPF(bytecode []unix.SockFilter) error {
 	}
 
 	fprog := unix.SockFprog{
-		Len:    uint16(len(bytecode)),
+		Len:    uint16(len(bytecode)), //nolint:gosec // BPF programs are bounded by the kernel filter limit.
 		Filter: &bytecode[0],
 	}
 
@@ -66,7 +68,7 @@ func (r *Raw) Receive(buf []byte) (int, *unix.SockaddrLinklayer, error) {
 
 	sall, ok := sa.(*unix.SockaddrLinklayer)
 	if !ok {
-		return n, nil, fmt.Errorf("unexpected source")
+		return n, nil, errors.New("unexpected source")
 	}
 
 	if err != nil {
@@ -83,7 +85,7 @@ func (r *Raw) Send(ifIndex int, hwAddr net.HardwareAddr, protocol uint16, buf []
 	}
 
 	if hwAddr != nil {
-		sa.Halen = uint8(len(hwAddr))
+		sa.Halen = uint8(len(hwAddr)) //nolint:gosec // MAC length is 6, fits uint8.
 		copy(sa.Addr[:], hwAddr)
 	}
 

@@ -1,5 +1,7 @@
-//go:build linux && amd64
-// +build linux,amd64
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright The dhcp-relay Authors
+
+//go:build linux
 
 package main
 
@@ -40,6 +42,7 @@ func main() {
 		"debug-server", "localhost:8080", "Debug web server address.")
 
 	flag.Usage = func() {
+		//nolint:gosec // G705: writing to stderr, not an untrusted sink.
 		_, err := fmt.Fprintf(flag.CommandLine.Output(), "Usage of %s (version: %s):\n",
 			os.Args[0], version.VCS(vcsAbbRevisionNum))
 		if err != nil {
@@ -93,7 +96,7 @@ func main() {
 		}
 	}(rs)
 
-	bpfBytecode := bytecode.GetBPFSockFilterForDHCPv4Messages(uint32(flagMTU))
+	bpfBytecode := bytecode.GetBPFSockFilterForDHCPv4Messages(uint32(flagMTU)) //nolint:gosec // flagMTU bounded ≤ MaxUint16 above
 	cl.Debugf("BPF bytecode: %+v\n", bpfBytecode)
 
 	err = rs.AttachBPF(bpfBytecode)
@@ -114,11 +117,12 @@ func main() {
 	cfg := &HandleOptions{
 		PacketConn:        pconn,
 		DHCPServerAddress: flagUpstreamDHCPServerAddr,
-		ReplyTTL:          uint8(flagReplyTTL),
+		ReplyTTL:          uint8(flagReplyTTL), //nolint:gosec // flagReplyTTL bounded ≤ MaxUint8 above
 	}
 
 	for {
-		buf := make([]byte, int(flagMTU)) //nolint:makezero // C-style for bytes slices is fine here
+		//nolint:makezero,gosec // C-style byte buffer; flagMTU bounded ≤ MaxUint16 above.
+		buf := make([]byte, int(flagMTU))
 
 		n, sall, err := rs.Receive(buf)
 		if err != nil {
@@ -141,6 +145,7 @@ func main() {
 		layerUDP := gpckt.GetUDP(packet)
 		layerDHCPv4 := gpckt.GetDHCPv4(packet)
 
+		//nolint:gosec // flagMTU bounded ≤ MaxUint16 above.
 		err = ValidateLayers(layerEthernet, layerIPv4, layerUDP, layerDHCPv4, uint16(flagMTU))
 		if err != nil {
 			cl.Debugf("Packet validation error: %s\n", err)

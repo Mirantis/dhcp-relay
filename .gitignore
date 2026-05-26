@@ -12,3 +12,6 @@ BUILD/
 
 # Ignore docker-in-docker local folder.
 .docker
+
+# Local Claude Code project guide; intentionally untracked.
+CLAUDE.md

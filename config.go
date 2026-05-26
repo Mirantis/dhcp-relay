@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright The dhcp-relay Authors
+
 package main
 
 import (
@@ -13,7 +16,6 @@ const (
 	logDataOutPrefix = "<--"
 )
 
-//nolint:gochecknoglobals // CLI configuration flags
 var (
 	flagUpstreamDHCPServerAddr string
 
@@ -25,7 +27,4 @@ var (
 	flagDebugServerAddr string
 )
 
-//nolint:gochecknoglobals // Logger
-var (
-	cl *logger.Config
-)
+var cl *logger.Config
