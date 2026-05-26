@@ -40,6 +40,8 @@ var (
 	flagDebug           bool
 	flagDebugServerAddr string
 
+	flagVersion bool
+
 	cl *logger.Config
 )
 
@@ -60,6 +62,9 @@ func main() {
 	flag.StringVar(&flagDebugServerAddr,
 		"debug-server", "localhost:8080", "Debug web server address.")
 
+	flag.BoolVar(&flagVersion,
+		"version", false, "Print binary version and exit.")
+
 	flag.Usage = func() {
 		//nolint:gosec // G705: writing to stderr, not an untrusted sink.
 		_, err := fmt.Fprintf(flag.CommandLine.Output(), "Usage of %s (version: %s):\n",
@@ -77,6 +82,12 @@ func main() {
 		cl = logger.NewWithoutDatetime()
 	} else {
 		cl = logger.NewWithDatetime()
+	}
+
+	if flagVersion {
+		cl.Infof("DHCPv4-Relay version: %s\n", version.VCS(vcsAbbRevisionNum))
+
+		os.Exit(0)
 	}
 
 	if flagDebug {

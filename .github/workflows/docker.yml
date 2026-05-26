@@ -16,9 +16,34 @@ env:
   IMAGE_NAME: ${{ github.repository }}
 
 jobs:
+  version:
+    name: Compute binary version
+    runs-on: ubuntu-latest
+
+    outputs:
+      version: ${{ steps.binver.outputs.version }}
+
+    steps:
+      - name: Setup Golang
+        uses: actions/setup-go@v6
+        with:
+          go-version: '1.26'
+          cache: false
+
+      - name: Check out source code
+        uses: actions/checkout@v6
+
+      - name: Build and extract version
+        id: binver
+        run: |
+          make build
+          version=$(BUILD/dhcp-relay -version 2>&1 | awk 'END{print $NF}')
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
   build:
     name: Build (${{ matrix.platform }})
     runs-on: ${{ matrix.runner }}
+    needs: version
 
     strategy:
       fail-fast: false
@@ -59,6 +84,10 @@ jobs:
           DOCKER_METADATA_ANNOTATIONS_LEVELS: manifest
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          labels: |
+            org.opencontainers.image.version=${{ needs.version.outputs.version }}
+          annotations: |
+            org.opencontainers.image.version=${{ needs.version.outputs.version }}
 
       - name: Build and push by digest
         id: build
@@ -87,7 +116,7 @@ jobs:
   merge:
     name: Merge & Push Manifest
     runs-on: ubuntu-latest
-    needs: build
+    needs: [version, build]
 
     permissions:
       contents: read
@@ -123,6 +152,10 @@ jobs:
           tags: |
             type=semver,pattern={{raw}}
             type=raw,value=latest,enable={{is_default_branch}}
+          labels: |
+            org.opencontainers.image.version=${{ needs.version.outputs.version }}
+          annotations: |
+            org.opencontainers.image.version=${{ needs.version.outputs.version }}
 
       - name: Create manifest list and push
         working-directory: ${{ runner.temp }}/digests

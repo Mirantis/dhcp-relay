@@ -10,7 +10,9 @@ DOCKER_BIN := $(or $(DOCKER_BIN),docker)
 SSH_ADD_BIN := $(or $(SSH_ADD_BIN),ssh-add)
 
 # Build version variables.
-BUILD_VERSION ?= $(shell $(GIT_BIN) describe --always --dirty --broken --abbrev=8)
+BUILD_VERSION ?= $(or \
+	$(shell $(ARTIFACTS_DIR)/$(BIN_NAME) -version 2>&1 | awk 'END{print $$NF}'),\
+	$(shell $(GIT_BIN) describe --always --dirty --broken --abbrev=8))
 BUILD_REVISION ?= $(shell $(GIT_BIN) rev-parse HEAD 2>/dev/null)
 BUILD_DATE ?= $(shell $(DATE_BIN) -u +%Y-%m-%dT%H:%M:%SZ)
 
@@ -29,7 +31,7 @@ endif
 # OCI image metadata (https://github.com/opencontainers/image-spec/blob/main/annotations.md).
 OCI_IMAGE_TITLE := $(IMAGE_DISPLAY_NAME)
 OCI_IMAGE_DESCRIPTION := $(IMAGE_DESCRIPTION)
-OCI_IMAGE_VERSION := $(BUILD_VERSION)
+OCI_IMAGE_VERSION = $(BUILD_VERSION)
 OCI_IMAGE_REVISION := $(BUILD_REVISION)
 OCI_IMAGE_CREATED := $(BUILD_DATE)
 OCI_IMAGE_LICENSES := Apache-2.0
@@ -73,7 +75,7 @@ docker-info:
 
 # Build docker image, set additional image tags.
 .PHONY: docker
-docker: docker-info
+docker: build docker-info
 	$(ENV_BIN) DOCKER_CONFIG=$(DOCKER_CONFIG) $(DOCKER_BIN) buildx build \
 	--ssh default \
 	--progress=$(DOCKER_BUILDKIT_PROGRESS) \
