@@ -97,6 +97,7 @@ jobs:
           platforms: ${{ matrix.platform }}
           labels: ${{ steps.meta.outputs.labels }}
           annotations: ${{ steps.meta.outputs.annotations }}
+          sbom: true
           outputs: type=image,name=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }},push-by-digest=true,name-canonical=true,push=true
 
       - name: Export digest
@@ -175,3 +176,21 @@ jobs:
         run: |
           docker buildx imagetools inspect \
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.meta.outputs.version }}
+
+      - name: Job summary
+        if: success()
+        env:
+          REPO: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          TAG: ${{ steps.meta.outputs.version }}
+        run: |
+          cat >>"$GITHUB_STEP_SUMMARY" <<EOF
+          ## Fetch the binary
+
+          Extract \`dhcp-relay\` from the published image with [ORAS](https://oras.land/), no docker required:
+
+          \`\`\`bash
+          oras blob fetch --output - "$REPO@\$(oras manifest fetch --platform linux/amd64 $REPO:$TAG | jq -r '.layers[-1].digest')" | tar -xzO usr/local/bin/dhcp-relay > dhcp-relay && chmod +x dhcp-relay
+          \`\`\`
+
+          Swap \`linux/amd64\` for \`linux/arm64\` to fetch the arm64 build.
+          EOF
