@@ -35,6 +35,21 @@ jobs:
       run: |
         go mod vendor
 
+    - name: Ensure 'vendor' branch exists
+      env:
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      run: |
+        if ! git ls-remote --exit-code --heads "https://github.com/${GITHUB_REPOSITORY}.git" vendor >/dev/null; then
+          echo "vendor branch does not exist; creating empty orphan branch"
+          tmp="$(mktemp -d)"
+          cd "$tmp"
+          git init -q -b vendor
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit --allow-empty -q -m "Initialize vendor branch"
+          git push -q "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" vendor
+        fi
+
     - name: Checkout 'vendor' branch
       uses: actions/checkout@v6
       with:
