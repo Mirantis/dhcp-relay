@@ -1,0 +1,117 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright The dhcp-relay Authors
+
+name: dhcp-relay-e2e
+
+services:
+  kea:
+    build:
+      context: .
+      dockerfile_inline: |
+        FROM debian:13-slim
+        RUN apt-get update \
+         && apt-get install -y --no-install-recommends kea-dhcp4-server \
+         && rm -rf /var/lib/apt/lists/* \
+         && mkdir -p /run/kea
+        ENTRYPOINT ["/usr/sbin/kea-dhcp4"]
+    image: dhcp-relay-kea:e2e
+    command: ["-c", "/etc/kea/kea-dhcp4.conf"]
+    configs:
+      - source: kea-dhcp4
+        target: /etc/kea/kea-dhcp4.conf
+        mode: 0444
+    networks:
+      server-net:
+        ipv4_address: 10.99.0.3
+
+  relay:
+    build:
+      context: ../
+      dockerfile: Dockerfile
+    image: dhcp-relay:e2e
+    cap_add:
+      - NET_RAW
+    command:
+      - dhcp-relay
+      - -dhcp-server-address=kea
+      - -debug
+      - -log-no-datetime
+    networks:
+      client-net:
+        ipv4_address: 192.168.50.2
+      server-net:
+        ipv4_address: 10.99.0.2
+    depends_on:
+      kea:
+        condition: service_started
+
+  client:
+    image: busybox:latest
+    profiles: ["probe"]
+    cap_add:
+      - NET_RAW
+      - NET_ADMIN
+    entrypoint: ["udhcpc"]
+    networks:
+      client-net: {}
+    depends_on:
+      relay:
+        condition: service_started
+
+  client-direct:
+    image: busybox:latest
+    profiles: ["probe"]
+    cap_add:
+      - NET_RAW
+      - NET_ADMIN
+    entrypoint: ["udhcpc"]
+    networks:
+      server-net: {}
+    depends_on:
+      kea:
+        condition: service_started
+
+networks:
+  client-net:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 192.168.50.0/24
+  server-net:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 10.99.0.0/24
+
+configs:
+  kea-dhcp4:
+    content: |
+      {
+        "Dhcp4": {
+          "interfaces-config": { "interfaces": ["*"] },
+          "lease-database": { "type": "memfile", "persist": false },
+          "valid-lifetime": 600,
+          "renew-timer": 200,
+          "rebind-timer": 400,
+          "expired-leases-processing": {
+            "reclaim-timer-wait-time": 10,
+            "flush-reclaimed-timer-wait-time": 25,
+            "hold-reclaimed-time": 60
+          },
+          "subnet4": [
+            {
+              "id": 1,
+              "subnet": "192.168.50.0/24",
+              "pools": [ { "pool": "192.168.50.100 - 192.168.50.150" } ],
+              "relay": { "ip-addresses": ["192.168.50.2"] }
+            }
+          ],
+          "loggers": [
+            {
+              "name": "kea-dhcp4",
+              "output_options": [ { "output": "stdout" } ],
+              "severity": "INFO"
+            }
+          ]
+        }
+      }

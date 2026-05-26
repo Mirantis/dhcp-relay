@@ -26,3 +26,8 @@ all: check build
 # Run all checks.
 .PHONY: check
 check: clean tidy lint test check-git-clean
+
+# End-to-end smoke test via docker compose.
+.PHONY: test-e2e
+test-e2e:
+	bash $(PROJECT_DIR)/e2e/run.sh

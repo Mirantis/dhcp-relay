@@ -33,7 +33,7 @@ RUN --mount=type=ssh env GOPROXY=${GOPROXY} go mod download -x || true
 COPY . .
 
 # Build binaries.
-RUN --mount=type=ssh make GOPROXY=${GOPROXY} GOOS=${TARGETOS} GOARCH=${TARGETARCH} all
+RUN --mount=type=ssh make GOPROXY=${GOPROXY} GOOS=${TARGETOS} GOARCH=${TARGETARCH} build
 
 # Use base image.
 FROM ${BASE_IMAGE} AS base
