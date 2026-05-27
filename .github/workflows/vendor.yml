@@ -8,10 +8,17 @@ on:
   schedule:
     - cron: '0 0 * * *'
 
+permissions:
+  contents: read
+
 jobs:
   create-vendor-bump-PR:
     name: Update Vendor Branch
     runs-on: ubuntu-latest
+
+    permissions:
+      contents: write
+      pull-requests: write
 
     steps:
     - name: Setup Golang

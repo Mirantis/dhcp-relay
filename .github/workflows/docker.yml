@@ -11,6 +11,9 @@ on:
     tags:
       - v*
 
+permissions:
+  contents: read
+
 env:
   REGISTRY: ghcr.io
   IMAGE_NAME: ${{ github.repository }}
@@ -63,6 +66,7 @@ jobs:
         run: |
           platform=${{ matrix.platform }}
           echo "PLATFORM_PAIR=${platform//\//-}" >> $GITHUB_ENV
+          echo "IMAGE_NAME=${IMAGE_NAME,,}" >> $GITHUB_ENV
 
       - name: Checkout repository
         uses: actions/checkout@v6
@@ -124,6 +128,10 @@ jobs:
       packages: write
 
     steps:
+      - name: Prepare
+        run: |
+          echo "IMAGE_NAME=${IMAGE_NAME,,}" >> $GITHUB_ENV
+
       - name: Download digests
         uses: actions/download-artifact@v8
         with:
