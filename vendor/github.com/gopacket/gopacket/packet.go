@@ -111,6 +111,12 @@ type Packet interface {
 	Data() []byte
 	// Metadata returns packet metadata associated with this packet.
 	Metadata() *PacketMetadata
+
+	//// Functions for verifying specific aspects of the packet:
+	//// ------------------------------------------------------------------
+	// VerifyChecksums verifies the checksums of all layers in this packet,
+	// that have one, and returns all found checksum mismatches.
+	VerifyChecksums() (error, []ChecksumMismatch)
 }
 
 type PooledPacket interface {
@@ -201,6 +207,30 @@ func (p *packet) DecodeOptions() *DecodeOptions {
 	return &p.decodeOptions
 }
 
+func (p *packet) VerifyChecksums() (error, []ChecksumMismatch) {
+	mismatches := make([]ChecksumMismatch, 0)
+	for i, l := range p.layers {
+		if lwc, ok := l.(LayerWithChecksum); ok {
+			// Verify checksum for that layer
+			err, res := lwc.VerifyChecksum()
+			if err != nil {
+				return fmt.Errorf("couldn't verify checksum for layer %d (%s): %w",
+					i+1, l.LayerType(), err), nil
+			}
+
+			if !res.Valid {
+				mismatches = append(mismatches, ChecksumMismatch{
+					ChecksumVerificationResult: res,
+					Layer:                      l,
+					LayerIndex:                 i,
+				})
+			}
+		}
+	}
+
+	return nil, mismatches
+}
+
 func (p *packet) addFinalDecodeError(err error, stack []byte) {
 	fail := &DecodeFailure{err: err, stack: stack}
 	if p.last == nil {
@@ -285,8 +315,14 @@ func LayerDump(l Layer) string {
 func layerString(v reflect.Value, anonymous bool, writeSpace bool) string {
 	// Let String() functions take precedence.
 	if v.CanInterface() {
-		if s, ok := v.Interface().(fmt.Stringer); ok {
-			return s.String()
+		if v.CanAddr() && v.Addr().CanInterface() {
+			if s, ok := v.Addr().Interface().(fmt.Stringer); ok {
+				return s.String()
+			}
+		} else {
+			if s, ok := v.Interface().(fmt.Stringer); ok {
+				return s.String()
+			}
 		}
 	}
 	// Reflect, and spit out all the exported fields as key=value.
