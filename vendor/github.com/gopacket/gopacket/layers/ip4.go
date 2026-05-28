@@ -149,33 +149,15 @@ func (ip *IPv4) SerializeTo(b gopacket.SerializeBuffer, opts gopacket.SerializeO
 	}
 
 	if opts.ComputeChecksums {
-		ip.Checksum = checksum(bytes)
+		// Clear checksum bytes
+		bytes[10] = 0
+		bytes[11] = 0
+
+		csum := gopacket.ComputeChecksum(bytes, 0)
+		ip.Checksum = gopacket.FoldChecksum(csum)
 	}
 	binary.BigEndian.PutUint16(bytes[10:], ip.Checksum)
 	return nil
-}
-
-func checksum(bytes []byte) uint16 {
-	// Clear checksum bytes
-	bytes[10] = 0
-	bytes[11] = 0
-
-	// Compute checksum
-	var csum uint32
-	for i := 0; i < len(bytes); i += 2 {
-		csum += uint32(bytes[i]) << 8
-		csum += uint32(bytes[i+1])
-	}
-	for {
-		// Break when sum is less or equals to 0xFFFF
-		if csum <= 65535 {
-			break
-		}
-		// Add carry to the sum
-		csum = (csum >> 16) + uint32(uint16(csum))
-	}
-	// Flip all the bits
-	return ^uint16(csum)
 }
 
 func (ip *IPv4) flagsfrags() (ff uint16) {
@@ -226,6 +208,7 @@ func (ip *IPv4) DecodeFromBytes(data []byte, df gopacket.DecodeFeedback) error {
 	// From here on, data contains the header options.
 	headerOptionsData := data[20 : ip.IHL*4]
 	// Pull out IP options
+pullOutOptions:
 	for len(headerOptionsData) > 0 {
 		if ip.Options == nil {
 			// Pre-allocate to avoid growing the slice too much.
@@ -238,8 +221,8 @@ func (ip *IPv4) DecodeFromBytes(data []byte, df gopacket.DecodeFeedback) error {
 			opt.OptionLength = 1
 			ip.Options = append(ip.Options, opt)
 			ip.Padding = headerOptionsData[1:]
-
-			return nil
+			headerOptionsData = headerOptionsData[1:]
+			break pullOutOptions
 		case 1: // 1 byte padding
 			opt.OptionLength = 1
 			headerOptionsData = headerOptionsData[1:]
@@ -275,7 +258,6 @@ func (ip *IPv4) DecodeFromBytes(data []byte, df gopacket.DecodeFeedback) error {
 	ip.Checksum = binary.BigEndian.Uint16(data[10:12])
 	ip.SrcIP = data[12:16]
 	ip.DstIP = data[16:20]
-	ip.Padding = nil
 
 	return nil
 }
@@ -328,4 +310,15 @@ func (ip *IPv4) AddressTo4() error {
 	ip.SrcIP = src
 	ip.DstIP = dst
 	return nil
+}
+
+func (ip *IPv4) VerifyChecksum() (error, gopacket.ChecksumVerificationResult) {
+	existing := ip.Checksum
+	verification := gopacket.ComputeChecksum(ip.Contents, 0)
+	correct := gopacket.FoldChecksum(verification - uint32(existing))
+	return nil, gopacket.ChecksumVerificationResult{
+		Valid:   correct == existing,
+		Correct: uint32(correct),
+		Actual:  uint32(existing),
+	}
 }

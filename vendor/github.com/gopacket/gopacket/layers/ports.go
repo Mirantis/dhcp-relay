@@ -40,7 +40,7 @@ var UDPLitePortNames = map[UDPLitePort]string{}
 // or just "number" if there isn't.  Well-known names are stored in
 // TCPPortNames.
 func (a TCPPort) String() string {
-	if name, ok := TCPPortNames[a]; ok {
+	if name, ok := TCPPortNames(a); ok {
 		return fmt.Sprintf("%d(%s)", a, name)
 	}
 	return strconv.Itoa(int(a))
@@ -76,8 +76,12 @@ func (a TCPPort) LayerType() gopacket.LayerType {
 		return LayerTypeTLS
 	case 995: // pop3s
 		return LayerTypeTLS
+	case 2222: // EtherNet/IP-1
+		return LayerTypeENIP
 	case 5061: // ips
 		return LayerTypeTLS
+	case 44818: // EtherNet/IP-2
+		return LayerTypeENIP
 	}
 	return gopacket.LayerTypePayload
 }
@@ -97,7 +101,7 @@ func RegisterTCPPortLayerType(port TCPPort, layerType gopacket.LayerType) {
 // or just "number" if there isn't.  Well-known names are stored in
 // UDPPortNames.
 func (a UDPPort) String() string {
-	if name, ok := UDPPortNames[a]; ok {
+	if name, ok := UDPPortNames(a); ok {
 		return fmt.Sprintf("%d(%s)", a, name)
 	}
 	return strconv.Itoa(int(a))
@@ -127,10 +131,18 @@ func (a UDPPort) LayerType() gopacket.LayerType {
 		return LayerTypeDHCPv6
 	case 623:
 		return LayerTypeRMCP
+	case 666:
+		return LayerTypeAGUEVar0
+	case 1000:
+		return LayerTypeAPSP
 	case 1812:
 		return LayerTypeRADIUS
+	case 2123:
+		return LayerTypeGTPv2
 	case 2152:
 		return LayerTypeGTPv1U
+	case 2222: // EtherNet/IP-1
+		return LayerTypeENIP
 	case 3784:
 		return LayerTypeBFD
 	case 4789:
@@ -141,6 +153,8 @@ func (a UDPPort) LayerType() gopacket.LayerType {
 		return LayerTypeGeneve
 	case 6343:
 		return LayerTypeSFlow
+	case 44818: // EtherNet/IP-2
+		return LayerTypeENIP
 	}
 	return gopacket.LayerTypePayload
 }
@@ -170,7 +184,7 @@ func (a RUDPPort) String() string {
 // or just "number" if there isn't.  Well-known names are stored in
 // SCTPPortNames.
 func (a SCTPPort) String() string {
-	if name, ok := SCTPPortNames[a]; ok {
+	if name, ok := SCTPPortNames(a); ok {
 		return fmt.Sprintf("%d(%s)", a, name)
 	}
 	return strconv.Itoa(int(a))
