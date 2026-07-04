@@ -89,6 +89,10 @@ lint-n-fix: golangci-lint
 test:
 	$(GO_BIN) test -v -failfast ./...
 
+.PHONY: test-race
+test-race:
+	$(GO_BIN) test -v -failfast -race ./...
+
 # Tidy golang dependencies.
 .PHONY: tidy
 tidy:

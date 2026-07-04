@@ -18,15 +18,25 @@ import (
 	"code.local/dhcp-relay/pkg/specs"
 )
 
+// EffectiveServerAddress returns the per packet upstream override when set otherwise the process default.
+func EffectiveServerAddress(cfg *HandleOptions, dec *Decision) string {
+	if dec != nil && dec.ServerAddress != "" {
+		return dec.ServerAddress
+	}
+
+	return cfg.DHCPServerAddress
+}
+
 func SendToServer(
 	cfg *HandleOptions,
+	serverAddr string,
 	buf []byte,
 ) (laddr, raddr net.Addr, err error) {
 	var to *net.UDPAddr
 
 	to, err = net.ResolveUDPAddr("udp4",
 		net.JoinHostPort(
-			cfg.DHCPServerAddress,
+			serverAddr,
 			strconv.Itoa(specs.DHCPv4ServerPort),
 		),
 	)
@@ -55,6 +65,7 @@ func SendToServer(
 
 func HandleGenericRequest(
 	cfg *HandleOptions,
+	dec *Decision,
 	ifIndex int,
 	dhcpMessageType string,
 	layerDHCPv4 *layers.DHCPv4,
@@ -72,9 +83,25 @@ func HandleGenericRequest(
 	cfg.Logger.Debugf("Option 82 -> Sub-option: Type=%d, Len=%d, Data=[% x], ASCII=%s",
 		subOpt1.Type, subOpt1.Length, subOpt1.Data, strconv.QuoteToASCII(string(subOpt1.Data)))
 
-	dhcp.SetRelayAgentInformationOption(layerDHCPv4, subOpt1)
+	subOpts := []layers.DHCPOption{subOpt1}
+
+	// Embed the matched policy key so the reply path can reapply the action. Skip it when it cannot fit Option 82 next to the circuit id.
+	if dec != nil && len(dec.PolicyTag) > 0 {
+		subOpts = append(subOpts, dhcp.CreatePolicyTagSubOption(dec.PolicyTag))
+	}
+
+	// Encode once. When the tag pushes Option 82 past the limit relay with the circuit id alone so the reply still routes by ingress NIC.
+	opt82 := dhcp.EncodeRelayAgentInformationOption(subOpts...)
+	if dhcp.IsOption(opt82) {
+		dhcp.SetOption(layerDHCPv4, opt82)
+	} else {
+		cfg.Logger.Debugf("Policy tag too large for Option 82, relaying without it\n")
+		dhcp.SetRelayAgentInformationOption(layerDHCPv4, subOpt1)
+	}
 
 	layerDHCPv4.RelayHops++
+
+	serverAddr := EffectiveServerAddress(cfg, dec)
 
 	for _, addr := range addrs {
 		layerDHCPv4.RelayAgentIP = addr.IP
@@ -92,7 +119,7 @@ func HandleGenericRequest(
 			return fmt.Errorf("layer encoding error: %w", err)
 		}
 
-		if laddr, raddr, err := SendToServer(cfg, buffer.Bytes()); err != nil {
+		if laddr, raddr, err := SendToServer(cfg, serverAddr, buffer.Bytes()); err != nil {
 			cfg.Logger.Errorf("Error sending DHCPv4 relayed message: %v\n", err)
 		} else {
 			cfg.Logger.Infof("%s 0x%x: DHCP-%s [%d], Src=%s, Dst=%s\n",
@@ -105,6 +132,7 @@ func HandleGenericRequest(
 
 func ForwardRelayedRequest(
 	cfg *HandleOptions,
+	dec *Decision,
 	dhcpMessageType string,
 	layerDHCPv4 *layers.DHCPv4,
 ) error {
@@ -121,7 +149,7 @@ func ForwardRelayedRequest(
 		return fmt.Errorf("layer encoding error: %w", err)
 	}
 
-	if laddr, raddr, err := SendToServer(cfg, buffer.Bytes()); err != nil {
+	if laddr, raddr, err := SendToServer(cfg, EffectiveServerAddress(cfg, dec), buffer.Bytes()); err != nil {
 		cfg.Logger.Errorf("Error sending DHCPv4 relayed message: %v\n", err)
 	} else {
 		cfg.Logger.Infof("%s 0x%x: DHCP-%s [%d], Src=%s, Dst=%s\n",

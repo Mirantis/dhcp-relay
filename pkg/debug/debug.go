@@ -4,9 +4,13 @@
 package debug
 
 import (
+	"context"
+	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"runtime/metrics"
+	"sync"
 	"time"
 
 	_ "expvar"
@@ -16,7 +20,7 @@ import (
 )
 
 /*
-	Available server endpoints:
+	Available server endpoints.
 
 	Profiling and tracing (auto-registered by net/http/pprof):
 		- /debug/pprof/                  (index listing all sub-profiles, with descriptions)
@@ -39,24 +43,57 @@ import (
 
 const ServerReadHeaderTimeout = 5 * time.Second
 
-func Serve(addr string, cl *logger.Config) {
+// ServerShutdownTimeout bounds the graceful Shutdown of the debug server.
+const ServerShutdownTimeout = 5 * time.Second
+
+// registerMetrics guards the one time route registration so Serve is safe to call more than once.
+var registerMetrics sync.Once
+
+// Serve binds addr and serves the debug HTTP server in a background goroutine, returning the server or nil.
+func Serve(addr string, cl *logger.Config) *http.Server {
 	if addr == "" {
-		return
+		return nil
 	}
 
-	http.HandleFunc("/debug/metrics", RuntimeMetricsHandler)
+	registerMetrics.Do(func() {
+		http.HandleFunc("/debug/metrics", RuntimeMetricsHandler)
+	})
+
+	var lc net.ListenConfig
+
+	ln, err := lc.Listen(context.Background(), "tcp", addr)
+	if err != nil {
+		cl.Errorf("Failed to start `/debug` web server: %s", err)
+
+		return nil
+	}
 
 	server := &http.Server{
-		Addr:              addr,
+		Addr:              ln.Addr().String(),
 		ReadHeaderTimeout: ServerReadHeaderTimeout,
 	}
 
 	go func() {
-		err := server.ListenAndServe()
-		if err != nil {
-			cl.Errorf("Failed to start `/debug` web server: %s", err)
+		if err := server.Serve(ln); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			cl.Errorf("`/debug` web server stopped: %s", err)
 		}
 	}()
+
+	return server
+}
+
+// Shutdown gracefully stops a server returned by Serve within ServerShutdownTimeout. A nil server does nothing.
+func Shutdown(server *http.Server, cl *logger.Config) {
+	if server == nil {
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), ServerShutdownTimeout)
+	defer cancel()
+
+	if err := server.Shutdown(ctx); err != nil {
+		cl.Warnf("Error shutting down `/debug` web server: %s", err)
+	}
 }
 
 func RuntimeMetricsHandler(w http.ResponseWriter, _ *http.Request) {

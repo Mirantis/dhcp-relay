@@ -6,34 +6,54 @@ package sockets
 import (
 	"errors"
 	"net"
+	"os"
+	"time"
 
 	"golang.org/x/sys/unix"
 )
 
+// Raw wraps a nonblocking AF_PACKET socket in an os.File so blocking calls park on the Go runtime poller.
 type Raw struct {
-	fd int
+	f *os.File
 }
 
-// Create socket with AF_PACKET, SOCK_RAW, and specified protocol.
-// Example:
-//   - sockets.Create(sockets.Htons(unix.ETH_P_ALL))
-//   - sockets.Create(sockets.Htons(unix.ETH_P_IP))
-//   - ...
+// Create opens an AF_PACKET SOCK_RAW socket for the given protocol like Htons(ETH_P_ALL) or Htons(ETH_P_IP).
 func (r *Raw) Create(protocol uint16) error {
-	var err error
-
-	r.fd, err = unix.Socket(unix.AF_PACKET, unix.SOCK_RAW, int(protocol))
+	fd, err := unix.Socket(unix.AF_PACKET, unix.SOCK_RAW|unix.SOCK_NONBLOCK|unix.SOCK_CLOEXEC, int(protocol))
 	if err != nil {
 		return err
 	}
 
-	unix.CloseOnExec(r.fd)
+	// A nonblocking descriptor makes os.NewFile register it with the runtime poller.
+	r.f = os.NewFile(uintptr(fd), "af-packet") //nolint:gosec // G115: kernel FDs are non negative and fit uintptr.
 
 	return nil
 }
 
 func (r *Raw) Close() error {
-	return unix.Close(r.fd)
+	return r.f.Close()
+}
+
+// SetReadDeadline wakes a Receive blocked past t. A zero t clears the deadline.
+func (r *Raw) SetReadDeadline(t time.Time) error {
+	return r.f.SetReadDeadline(t)
+}
+
+// control runs f on the descriptor through the file's SyscallConn so the call cannot race a concurrent Close.
+func (r *Raw) control(f func(fd int) error) error {
+	rc, err := r.f.SyscallConn()
+	if err != nil {
+		return err
+	}
+
+	var opErr error
+
+	//nolint:gosec // G115: FDs returned by the Go runtime fit in int on all supported platforms.
+	if err := rc.Control(func(fd uintptr) { opErr = f(int(fd)) }); err != nil {
+		return err
+	}
+
+	return opErr
 }
 
 func (r *Raw) Bind(ifIndex int, hwAddr net.HardwareAddr, protocol uint16) error {
@@ -47,7 +67,7 @@ func (r *Raw) Bind(ifIndex int, hwAddr net.HardwareAddr, protocol uint16) error 
 		copy(sa.Addr[:], hwAddr)
 	}
 
-	return unix.Bind(r.fd, sa)
+	return r.control(func(fd int) error { return unix.Bind(fd, sa) })
 }
 
 func (r *Raw) AttachBPF(bytecode []unix.SockFilter) error {
@@ -60,19 +80,42 @@ func (r *Raw) AttachBPF(bytecode []unix.SockFilter) error {
 		Filter: &bytecode[0],
 	}
 
-	return unix.SetsockoptSockFprog(r.fd, unix.SOL_SOCKET, unix.SO_ATTACH_FILTER, &fprog)
+	return r.control(func(fd int) error {
+		return unix.SetsockoptSockFprog(fd, unix.SOL_SOCKET, unix.SO_ATTACH_FILTER, &fprog)
+	})
 }
 
+// Receive blocks until one frame arrives and returns its length and link layer source.
 func (r *Raw) Receive(buf []byte) (int, *unix.SockaddrLinklayer, error) {
-	n, sa, err := unix.Recvfrom(r.fd, buf, 0)
+	rc, err := r.f.SyscallConn()
+	if err != nil {
+		return 0, nil, err
+	}
+
+	var (
+		n    int
+		sa   unix.Sockaddr
+		rerr error
+	)
+
+	err = rc.Read(func(fd uintptr) bool {
+		//nolint:gosec // G115: FDs returned by the Go runtime fit in int on all supported platforms.
+		n, sa, rerr = unix.Recvfrom(int(fd), buf, 0)
+
+		// On EAGAIN wait on the poller for readability and try again.
+		return !errors.Is(rerr, unix.EAGAIN)
+	})
+	if err != nil {
+		return 0, nil, err
+	}
+
+	if rerr != nil {
+		return n, nil, rerr
+	}
 
 	sall, ok := sa.(*unix.SockaddrLinklayer)
 	if !ok {
 		return n, nil, errors.New("unexpected source")
-	}
-
-	if err != nil {
-		return n, sall, err
 	}
 
 	return n, sall, nil
@@ -89,9 +132,26 @@ func (r *Raw) Send(ifIndex int, hwAddr net.HardwareAddr, protocol uint16, buf []
 		copy(sa.Addr[:], hwAddr)
 	}
 
-	err := unix.Sendto(r.fd, buf, 0, sa)
+	rc, err := r.f.SyscallConn()
 	if err != nil {
 		return 0, err
+	}
+
+	var serr error
+
+	err = rc.Write(func(fd uintptr) bool {
+		//nolint:gosec // G115: FDs returned by the Go runtime fit in int on all supported platforms.
+		serr = unix.Sendto(int(fd), buf, 0, sa)
+
+		// On EAGAIN wait on the poller for writability and try again.
+		return !errors.Is(serr, unix.EAGAIN)
+	})
+	if err != nil {
+		return 0, err
+	}
+
+	if serr != nil {
+		return 0, serr
 	}
 
 	return len(buf), nil

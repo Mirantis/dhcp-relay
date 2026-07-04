@@ -39,3 +39,21 @@ func GetInterfaceGlobalUnicastAddrs4(ifIndex int) []net.IPNet {
 
 	return out
 }
+
+// BestUnicastSrc returns the address containing yiaddr or the first address as a fallback. It returns nil for an empty addrs.
+func BestUnicastSrc(addrs []net.IPNet, yiaddr net.IP) net.IP {
+	if len(addrs) == 0 {
+		return nil
+	}
+
+	yi4 := yiaddr.To4()
+	if yi4 != nil {
+		for _, a := range addrs {
+			if a.IP.To4() != nil && a.Contains(yi4) {
+				return a.IP.To4()
+			}
+		}
+	}
+
+	return addrs[0].IP.To4()
+}

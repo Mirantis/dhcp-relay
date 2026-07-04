@@ -37,3 +37,7 @@ jobs:
       - name: Test
         run: |
           make test
+
+      - name: Test (race detector)
+        run: |
+          make test-race

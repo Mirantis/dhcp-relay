@@ -20,4 +20,7 @@ const (
 
 	DHCPv4OptionTypeSize   = 1
 	DHCPv4OptionLengthSize = 1
+
+	// DHCPv4MaxSubOptionSize is the largest sub option payload that fits inside a container option.
+	DHCPv4MaxSubOptionSize = DHCPv4MaxOptionSize - DHCPv4OptionTypeSize - DHCPv4OptionLengthSize
 )

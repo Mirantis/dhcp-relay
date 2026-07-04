@@ -30,11 +30,17 @@ func DeleteRelayAgentInformationOption(layerDHCPv4 *layers.DHCPv4) {
 	DeleteOption(layerDHCPv4, RelayAgentInformation)
 }
 
+// SetRelayAgentInformationOption encodes sub options into Option 82 on the layer, skipping sets that cannot encode.
 func SetRelayAgentInformationOption(layerDHCPv4 *layers.DHCPv4, subOptions ...layers.DHCPOption) {
 	opt82 := EncodeRelayAgentInformationOption(subOptions...)
+	if !IsOption(opt82) {
+		return
+	}
+
 	SetOption(layerDHCPv4, opt82)
 }
 
+// EncodeRelayAgentInformationOption packs sub options into one Option 82 and returns zero for a zero sub option or oversize set.
 func EncodeRelayAgentInformationOption(subOptions ...layers.DHCPOption) layers.DHCPOption {
 	data := make([]byte, 0)
 
@@ -56,10 +62,12 @@ func EncodeRelayAgentInformationOption(subOptions ...layers.DHCPOption) layers.D
 
 func DecodeRelayAgentInformationOption(option layers.DHCPOption) []layers.DHCPOption {
 	data := option.Data
-	subOptions := make([]layers.DHCPOption, 0)
 	headerSize := specs.DHCPv4OptionTypeSize + specs.DHCPv4OptionLengthSize
 
+	var subOptions []layers.DHCPOption
+
 	for len(data) > 0 {
+		// Reject the whole option on a truncated trailer so a corrupt Option 82 never yields a partial parse the reply path would trust.
 		if len(data) < headerSize {
 			return nil
 		}
