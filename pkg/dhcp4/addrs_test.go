@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright The dhcp-relay Authors
 
+//go:build linux
+
 package dhcp4_test
 
 import (
@@ -69,6 +71,15 @@ func TestBestUnicastSrc(t *testing.T) {
 			yiaddr: net.IPv4(192, 168, 1, 5),
 			want:   net.IPv4(192, 168, 1, 1),
 		},
+		{
+			name: "IPv6-only addrs[0] fallback returns nil",
+			addrs: []net.IPNet{
+				{IP: net.ParseIP("2001:db8::1"), Mask: net.CIDRMask(64, 128)},
+				v4net(10, 0, 0, 1, mask8),
+			},
+			yiaddr: net.IPv4(192, 168, 1, 5),
+			want:   nil,
+		},
 	}
 
 	for _, tc := range tests {
@@ -84,13 +95,21 @@ func TestBestUnicastSrc(t *testing.T) {
 // TestGetInterfaceGlobalUnicastAddrs4 checks GetInterfaceGlobalUnicastAddrs4 returns nil for an invalid index.
 func TestGetInterfaceGlobalUnicastAddrs4(t *testing.T) {
 	t.Run("ifIndex 0 returns nil", func(t *testing.T) {
-		if got := dhcp4.GetInterfaceGlobalUnicastAddrs4(0); got != nil {
+		got, err := dhcp4.GetInterfaceGlobalUnicastAddrs4(0)
+		if err != nil {
+			t.Errorf("GetInterfaceGlobalUnicastAddrs4(0) error = %v, want nil", err)
+		}
+		if got != nil {
 			t.Errorf("GetInterfaceGlobalUnicastAddrs4(0) = %v, want nil", got)
 		}
 	})
 
 	t.Run("invalid large ifIndex returns nil", func(t *testing.T) {
-		if got := dhcp4.GetInterfaceGlobalUnicastAddrs4(999999); got != nil {
+		got, err := dhcp4.GetInterfaceGlobalUnicastAddrs4(999999)
+		if err == nil {
+			t.Error("GetInterfaceGlobalUnicastAddrs4(999999) error = nil, want non-nil")
+		}
+		if got != nil {
 			t.Errorf("GetInterfaceGlobalUnicastAddrs4(999999) = %v, want nil", got)
 		}
 	})

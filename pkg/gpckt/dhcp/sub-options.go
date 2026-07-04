@@ -1,9 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright The dhcp-relay Authors
 
+//go:build linux
+
 package dhcp
 
 import (
+	"net"
 	"strconv"
 
 	"github.com/gopacket/gopacket/layers"
@@ -13,6 +16,8 @@ import (
 
 const (
 	AgentCircuitIDSubOption layers.DHCPOpt = 1
+	// LinkSelectionSubOption (RFC 3527) carries the client subnet so the server picks a pool from it not from giaddr.
+	LinkSelectionSubOption layers.DHCPOpt = 5
 	// PolicyTagSubOption carries the matched policy key so the reply path can reapply the same action.
 	PolicyTagSubOption layers.DHCPOpt = 224
 )
@@ -26,12 +31,12 @@ const (
 		2*(specs.DHCPv4OptionTypeSize+specs.DHCPv4OptionLengthSize) - MaxAgentCircuitIDSize
 )
 
-func CreateAgentCircuitIDSubOption(value int) layers.DHCPOption {
-	data := []byte(strconv.Itoa(value))
+func CreateAgentCircuitIDSubOption(value uint32) layers.DHCPOption {
+	data := []byte(strconv.FormatUint(uint64(value), 10))
 
 	return layers.DHCPOption{
 		Type:   AgentCircuitIDSubOption,
-		Length: byte(len(data)), //nolint:gosec // strconv.Itoa of an int produces at most ~20 bytes.
+		Length: byte(len(data)), //nolint:gosec // a uint32 renders to at most 10 digits.
 		Data:   data,
 	}
 }
@@ -53,6 +58,31 @@ func ExtractAgentCircuitIDSubOptionData(options ...layers.DHCPOption) int {
 	return 0
 }
 
+// CreateLinkSelectionSubOption wraps an IPv4 subnet address as the RFC 3527 sub option, returning zero for a non IPv4 value.
+func CreateLinkSelectionSubOption(subnet net.IP) layers.DHCPOption {
+	v4 := subnet.To4()
+	if v4 == nil {
+		return layers.DHCPOption{}
+	}
+
+	return layers.DHCPOption{
+		Type:   LinkSelectionSubOption,
+		Length: net.IPv4len,
+		Data:   append([]byte(nil), v4...),
+	}
+}
+
+// ExtractLinkSelectionSubOptionData returns the IPv4 subnet from the RFC 3527 sub option or nil when absent or malformed.
+func ExtractLinkSelectionSubOptionData(options ...layers.DHCPOption) net.IP {
+	for _, opt := range options {
+		if opt.Type == LinkSelectionSubOption && len(opt.Data) == net.IPv4len {
+			return net.IP(append([]byte(nil), opt.Data...))
+		}
+	}
+
+	return nil
+}
+
 // CreatePolicyTagSubOption wraps a matched policy key as a sub option with its own copy, returning zero when tag is empty or too large.
 func CreatePolicyTagSubOption(tag []byte) layers.DHCPOption {
 	if len(tag) == 0 || len(tag) > specs.DHCPv4MaxSubOptionSize {
@@ -66,11 +96,11 @@ func CreatePolicyTagSubOption(tag []byte) layers.DHCPOption {
 	}
 }
 
-// ExtractPolicyTagSubOptionData returns the policy tag bytes or nil when absent.
+// ExtractPolicyTagSubOptionData returns a copy of the policy tag bytes or nil when absent.
 func ExtractPolicyTagSubOptionData(options ...layers.DHCPOption) []byte {
 	for _, opt := range options {
 		if opt.Type == PolicyTagSubOption {
-			return opt.Data
+			return append([]byte(nil), opt.Data...)
 		}
 	}
 

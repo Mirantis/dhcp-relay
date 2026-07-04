@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright The dhcp-relay Authors
 
+//go:build linux
+
 package dhcp4
 
 import (
@@ -25,7 +27,7 @@ func HandleGenericReply(
 	dec *Decision,
 	dhcpMessageType string,
 	layerDHCPv4 *layers.DHCPv4,
-	replyType uint8,
+	replyType ReplyType,
 ) error {
 	if dec == nil {
 		dec = &Decision{}
@@ -74,6 +76,11 @@ func HandleGenericReply(
 		return fmt.Errorf("invalid interface data in Agent Circuit ID for IfIndex=%d: %w", ifIndex, err)
 	}
 
+	// Validate the ingress NIC can carry an Ethernet reply.
+	if ifi.Flags&net.FlagUp == 0 || len(ifi.HardwareAddr) == 0 {
+		return fmt.Errorf("ingress interface %s (IfIndex=%d) is down or has no hardware address", ifi.Name, ifIndex)
+	}
+
 	layerIPv4 := &layers.IPv4{
 		Version:  specs.IPv4Version,
 		Id:       GenerateRandomIPv4ID(),
@@ -92,15 +99,10 @@ func HandleGenericReply(
 		return fmt.Errorf("layer crafting error: %w", err)
 	}
 
-	// Decrement hops. At zero this is the last hop so strip Option 82 and RelayAgentIP.
-	if layerDHCPv4.RelayHops > 0 {
-		layerDHCPv4.RelayHops--
-	}
-
-	if layerDHCPv4.RelayHops == 0 {
-		dhcp.DeleteRelayAgentInformationOption(layerDHCPv4)
-		layerDHCPv4.RelayAgentIP = nil
-	}
+	// Reaching here means giaddr is one of our addresses so this relay faces the client. Strip Option 82
+	// and clear giaddr so the client sees a clean reply no matter how many relays the chain held.
+	dhcp.DeleteRelayAgentInformationOption(layerDHCPv4)
+	layerDHCPv4.RelayAgentIP = nil
 
 	dstMAC, err := ReplyAddressing(replyType, srcIP, layerDHCPv4, layerIPv4, cfg.BroadcastReplyL2Unicast)
 	if err != nil {
@@ -129,20 +131,24 @@ func HandleGenericReply(
 	errs := make([]error, 0, len(targets))
 
 	for _, nic := range targets {
-		// A unicast copy out a non ingress NIC is sourced from an address on that NIC.
-		if replyType == UnicastReply {
-			layerIPv4.SrcIP = srcIP
+		// A unicast copy out a non ingress NIC is sourced from an address on that NIC. nic is already a full
+		// interface handle so pass it directly.
+		if replyType == UnicastReply && nic.Index != ifi.Index {
+			addrs, err := InterfaceGlobalUnicastAddrs4(&nic)
+			if err != nil {
+				errs = append(errs, fmt.Errorf("%s: interface address lookup error: %w", nic.Name, err))
 
-			if nic.Index != ifi.Index {
-				addrs := GetInterfaceGlobalUnicastAddrs4(nic.Index)
-				if len(addrs) == 0 {
-					errs = append(errs, fmt.Errorf("%s: no IPv4 address for a unicast reply copy", nic.Name))
-
-					continue
-				}
-
-				layerIPv4.SrcIP = BestUnicastSrc(addrs, layerDHCPv4.YourClientIP)
+				continue
 			}
+			if len(addrs) == 0 {
+				errs = append(errs, fmt.Errorf("%s: no IPv4 address for a unicast reply copy", nic.Name))
+
+				continue
+			}
+
+			layerIPv4.SrcIP = BestUnicastSrc(addrs, layerDHCPv4.YourClientIP)
+		} else if replyType == UnicastReply {
+			layerIPv4.SrcIP = srcIP
 		}
 
 		if err := SendReply(cfg, rs, nic, dstMAC, dhcpMessageType, layerDHCPv4, layerIPv4, layerUDP); err != nil {
@@ -153,9 +159,32 @@ func HandleGenericReply(
 	return errors.Join(errs...)
 }
 
+// ForwardRelayedReply forwards a server reply to its giaddr when that address is a downstream relay not us.
+// The payload goes verbatim to the giaddr on port 67 so that relay can deliver it to the client.
+func ForwardRelayedReply(
+	cfg *HandleOptions,
+	layerDHCPv4 *layers.DHCPv4,
+	dhcpMessageType string,
+) error {
+	giaddr := layerDHCPv4.RelayAgentIP.To4()
+	if giaddr == nil || giaddr.IsUnspecified() || giaddr.IsLoopback() || giaddr.Equal(net.IPv4bcast) {
+		return errors.New("invalid Relay Agent address for reply forwarding")
+	}
+
+	// Count this relay hop on the return path so a reply that re-ingresses drains toward the minimum and
+	// stops looping the way the request path bounds a loop by growing toward the maximum.
+	if layerDHCPv4.RelayHops < 1 {
+		return fmt.Errorf("hop count %d below minimum for reply forwarding", layerDHCPv4.RelayHops)
+	}
+
+	layerDHCPv4.RelayHops--
+
+	return RelayToServer(cfg, giaddr.String(), dhcpMessageType, layerDHCPv4)
+}
+
 // ReplyAddressing applies unicast or broadcast addressing for a reply to the IPv4 layer and returns the Ethernet destination.
 func ReplyAddressing(
-	replyType uint8,
+	replyType ReplyType,
 	srcIP net.IP,
 	layerDHCPv4 *layers.DHCPv4,
 	layerIPv4 *layers.IPv4,
@@ -169,8 +198,11 @@ func ReplyAddressing(
 
 		// A DHCPINFORM ACK leaves yiaddr zero and puts the client address in ciaddr.
 		dstIP := layerDHCPv4.YourClientIP.To4()
-		if dstIP.IsUnspecified() {
+		if dstIP == nil || dstIP.IsUnspecified() {
 			dstIP = layerDHCPv4.ClientIP.To4()
+		}
+		if dstIP == nil {
+			return nil, errors.New("invalid client IP address for unicast reply")
 		}
 
 		layerIPv4.DstIP = dstIP
@@ -205,6 +237,10 @@ func SendReply(
 	layerIPv4 *layers.IPv4,
 	layerUDP *layers.UDP,
 ) error {
+	if len(nic.HardwareAddr) == 0 {
+		return fmt.Errorf("interface %s (IfIndex=%d) has no hardware address for L2 framing", nic.Name, nic.Index)
+	}
+
 	layerEthernet := &layers.Ethernet{
 		SrcMAC:       nic.HardwareAddr,
 		DstMAC:       dstMAC,
@@ -231,7 +267,8 @@ func SendReply(
 
 	cfg.Logger.Debugf("Sent %d bytes of data to socket\n", n)
 
-	cfg.Logger.Infof("%s 0x%x: DHCP-%s [%d], IfIndex=%d, Src=%s, Dst=%s\n",
+	cfg.Logger.Infof(
+		"%s 0x%x: DHCP-%s [%d], IfIndex=%d, Src=%s, Dst=%s\n",
 		logDataOutPrefix, layerDHCPv4.Xid, dhcpMessageType, layerDHCPv4.Len(), nic.Index,
 		net.JoinHostPort(layerIPv4.SrcIP.String(), strconv.Itoa(specs.DHCPv4ServerPort)),
 		net.JoinHostPort(layerIPv4.DstIP.String(), strconv.Itoa(specs.DHCPv4ClientPort)),

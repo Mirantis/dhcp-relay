@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright The dhcp-relay Authors
 
+//go:build linux
+
 package dhcp
 
 import (
@@ -10,7 +12,7 @@ import (
 )
 
 func GetBootFileName(layerDHCPv4 *layers.DHCPv4) string {
-	if len(layerDHCPv4.File) == 0 {
+	if layerDHCPv4 == nil || len(layerDHCPv4.File) == 0 {
 		return ""
 	}
 

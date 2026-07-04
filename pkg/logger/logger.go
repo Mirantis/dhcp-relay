@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright The dhcp-relay Authors
 
+//go:build linux
+
 package logger
 
 import (
@@ -19,7 +21,7 @@ type Config struct {
 
 func NewWithDatetime() *Config {
 	return &Config{
-		debugLogger: log.New(os.Stderr, "DBG | ", log.Ldate|log.Ltime|log.LUTC|log.Lmsgprefix),
+		debugLogger: log.New(io.Discard, "DBG | ", log.Ldate|log.Ltime|log.LUTC|log.Lmsgprefix),
 		infoLogger:  log.New(os.Stderr, "INF | ", log.Ldate|log.Ltime|log.LUTC|log.Lmsgprefix),
 		warnLogger:  log.New(os.Stderr, "WRN | ", log.Ldate|log.Ltime|log.LUTC|log.Lmsgprefix),
 		errorLogger: log.New(os.Stderr, "ERR | ", log.Ldate|log.Ltime|log.LUTC|log.Lmsgprefix),
@@ -29,7 +31,7 @@ func NewWithDatetime() *Config {
 
 func NewWithoutDatetime() *Config {
 	return &Config{
-		debugLogger: log.New(os.Stderr, "DBG | ", log.Lmsgprefix),
+		debugLogger: log.New(io.Discard, "DBG | ", log.Lmsgprefix),
 		infoLogger:  log.New(os.Stderr, "INF | ", log.Lmsgprefix),
 		warnLogger:  log.New(os.Stderr, "WRN | ", log.Lmsgprefix),
 		errorLogger: log.New(os.Stderr, "ERR | ", log.Lmsgprefix),

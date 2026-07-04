@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright The dhcp-relay Authors
 
+//go:build linux
+
 // Package relay applies per client MAC policy decisions to DHCPv4 packet handling on the relay hot path.
 package relay
 
@@ -63,6 +65,12 @@ func lookupReplyActionFromSubOpts(
 	clientID []byte,
 	subOpts []layers.DHCPOption,
 ) macpolicy.Action {
+	// Always check chaddr/clientID first so a forged Option 82 tag cannot bypass a blackhole.
+	base := policy.Lookup(clientID, layerDHCPv4.ClientHWAddr)
+	if base.Kind == macpolicy.ActionBlackhole {
+		return base
+	}
+
 	if tag := dhcp.ExtractPolicyTagSubOptionData(subOpts...); len(tag) > 0 {
 		// A tag matching no entry is stale after a reload or came from a foreign relay.
 		if action, id := policy.LookupID(tag); id != nil {
@@ -70,7 +78,7 @@ func lookupReplyActionFromSubOpts(
 		}
 	}
 
-	return policy.Lookup(clientID, layerDHCPv4.ClientHWAddr)
+	return base
 }
 
 // RequestConfig returns the Decision for a request, overriding the upstream for a server action and tagging with the key.

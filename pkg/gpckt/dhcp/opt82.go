@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright The dhcp-relay Authors
 
+//go:build linux
+
 package dhcp
 
 import (
@@ -80,7 +82,7 @@ func DecodeRelayAgentInformationOption(option layers.DHCPOption) []layers.DHCPOp
 		subOptions = append(subOptions, layers.DHCPOption{
 			Type:   layers.DHCPOpt(data[0]),
 			Length: data[specs.DHCPv4OptionTypeSize],
-			Data:   data[headerSize : headerSize+length],
+			Data:   append([]byte(nil), data[headerSize:headerSize+length]...),
 		})
 
 		data = data[headerSize+length:]

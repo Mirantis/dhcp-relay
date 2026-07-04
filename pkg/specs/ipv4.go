@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright The dhcp-relay Authors
 
+//go:build linux
+
 package specs
 
 // https://en.wikipedia.org/wiki/Internet_Protocol_version_4
@@ -19,11 +21,12 @@ const (
 	IPv4FieldSizeSourceIP       = 32
 	IPv4FieldSizeDestinationIP  = 32
 
-	IPv4HeaderSize = IPv4FieldSizeVersion + IPv4FieldSizeIHL + IPv4FieldSizeDSC + IPv4FieldSizeECN + IPv4FieldSizeTotalLength +
+	IPv4HeaderSizeBits = IPv4FieldSizeVersion + IPv4FieldSizeIHL + IPv4FieldSizeDSC + IPv4FieldSizeECN + IPv4FieldSizeTotalLength +
 		IPv4FieldSizeIdentification + IPv4FieldSizeFlags + IPv4FieldSizeFragmentOffset + IPv4FieldSizeTTL + IPv4FieldSizeProtocol +
 		IPv4FieldSizeChecksum + IPv4FieldSizeSourceIP + IPv4FieldSizeDestinationIP
 
-	IPv4FieldIHLValueThresholdForOptionsFieldPresence = 5
+	// IPv4FieldIHLValueMinHeaderNoOptions is the IHL for the min IPv4 header with no Options, present iff IHL exceeds this.
+	IPv4FieldIHLValueMinHeaderNoOptions = 5
 )
 
 const (

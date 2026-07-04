@@ -1,10 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright The dhcp-relay Authors
 
+//go:build linux
+
 package dhcp4
 
 import (
 	"net"
+	"slices"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -34,8 +37,12 @@ func NewInterfaceCache(ttl time.Duration) *InterfaceCache {
 
 // Interfaces returns the cached enumeration or refetches an expired one. A stale snapshot is served on refetch error.
 func (c *InterfaceCache) Interfaces() ([]net.Interface, error) {
+	if c.ttl <= 0 {
+		return net.Interfaces()
+	}
+
 	if s := c.snap.Load(); s != nil && time.Since(s.fetched) < c.ttl {
-		return s.ifaces, nil
+		return slices.Clone(s.ifaces), nil
 	}
 
 	c.mu.Lock()
@@ -43,16 +50,15 @@ func (c *InterfaceCache) Interfaces() ([]net.Interface, error) {
 
 	// Another caller may have refreshed while this one waited for the lock.
 	if s := c.snap.Load(); s != nil && time.Since(s.fetched) < c.ttl {
-		return s.ifaces, nil
+		return slices.Clone(s.ifaces), nil
 	}
 
 	ifaces, err := net.Interfaces()
 	if err != nil {
-		// With caching enabled serve a stale snapshot so a transient netlink error does not collapse reply routing to ingress only.
-		if c.ttl > 0 {
-			if s := c.snap.Load(); s != nil {
-				return s.ifaces, err
-			}
+		// Serve a stale snapshot so a transient netlink error does not collapse reply routing to ingress only.
+		// Callers must inspect the returned slice even when err is non-nil.
+		if s := c.snap.Load(); s != nil {
+			return slices.Clone(s.ifaces), err
 		}
 
 		return nil, err
@@ -60,5 +66,5 @@ func (c *InterfaceCache) Interfaces() ([]net.Interface, error) {
 
 	c.snap.Store(&interfaceSnapshot{fetched: time.Now(), ifaces: ifaces})
 
-	return ifaces, nil
+	return slices.Clone(ifaces), nil
 }

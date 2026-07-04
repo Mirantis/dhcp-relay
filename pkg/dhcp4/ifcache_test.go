@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright The dhcp-relay Authors
 
+//go:build linux
+
 package dhcp4_test
 
 import (
@@ -25,7 +27,24 @@ func sameBacking(t *testing.T, a, b []net.Interface) bool {
 	return &a[0] == &b[0]
 }
 
-// TestInterfaceCacheReusesSnapshot checks a second call within the TTL returns the cached snapshot instead of enumerating again.
+// SameInterfaces reports whether two enumerations describe the same interfaces regardless of backing array.
+func SameInterfaces(t *testing.T, a, b []net.Interface) bool {
+	t.Helper()
+
+	if len(a) != len(b) {
+		return false
+	}
+
+	for i := range a {
+		if a[i].Index != b[i].Index {
+			return false
+		}
+	}
+
+	return true
+}
+
+// TestInterfaceCacheReusesSnapshot checks a second call within the TTL returns equivalent data instead of enumerating again.
 func TestInterfaceCacheReusesSnapshot(t *testing.T) {
 	c := dhcp4.NewInterfaceCache(time.Hour)
 
@@ -39,8 +58,11 @@ func TestInterfaceCacheReusesSnapshot(t *testing.T) {
 		t.Fatalf("Interfaces: %v", err)
 	}
 
-	if !sameBacking(t, a, b) {
+	if !SameInterfaces(t, a, b) {
 		t.Error("a call within the TTL must return the cached snapshot")
+	}
+	if sameBacking(t, a, b) {
+		t.Error("a call within the TTL must return a defensive copy")
 	}
 }
 
@@ -79,8 +101,11 @@ func TestInterfaceCacheExpiry(t *testing.T) {
 		t.Fatalf("Interfaces: %v", err)
 	}
 
+	if !SameInterfaces(t, a, b) {
+		t.Error("an expired snapshot must be refetched with equivalent data")
+	}
 	if sameBacking(t, a, b) {
-		t.Error("an expired snapshot must be refetched")
+		t.Error("an expired snapshot must return a different backing array")
 	}
 }
 

@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright The dhcp-relay Authors
 
+//go:build linux
+
 package dhcp4
 
 import (
@@ -24,6 +26,11 @@ func ValidateLayers(
 	layerUDP *layers.UDP,
 	layerDHCPv4 *layers.DHCPv4,
 ) error {
+	if opts.MTU != 0 && opts.MTU < specs.DHCPv4MinMessageSize {
+		return fmt.Errorf("invalid ValidateOptions: MTU %d below minimum DHCPv4 size %d",
+			opts.MTU, specs.DHCPv4MinMessageSize)
+	}
+
 	if layerEthernet == nil {
 		return errors.New("invalid Ethernet layer data")
 	}
@@ -32,11 +39,11 @@ func ValidateLayers(
 		return errors.New("invalid IPv4 layer data")
 	}
 
-	if layerIPv4.Flags&layers.IPv4MoreFragments != 0 && layerIPv4.FragOffset > 0 {
+	if layerIPv4.Flags&layers.IPv4MoreFragments != 0 || layerIPv4.FragOffset > 0 {
 		return errors.New("IPv4 header indicates that packet is fragmented")
 	}
 
-	if layerIPv4.IHL > specs.IPv4FieldIHLValueThresholdForOptionsFieldPresence {
+	if layerIPv4.IHL > specs.IPv4FieldIHLValueMinHeaderNoOptions {
 		return errors.New("IPv4 header has variable-sized Options field")
 	}
 
@@ -72,11 +79,11 @@ func ValidateLayers(
 		return fmt.Errorf("unexpected HardwareType in DHCPv4 message: %s", layerDHCPv4.HardwareType)
 	}
 
-	if layerDHCPv4.HardwareLen != specs.EthernetMACLength {
+	if layerDHCPv4.HardwareLen != specs.EthernetMACLengthBytes {
 		return fmt.Errorf("unexpected size of HardwareLen in DHCPv4 message: %d", layerDHCPv4.HardwareLen)
 	}
 
-	if layerDHCPv4.Len() < specs.DHCPv4MinMessageSize || layerDHCPv4.Len() > opts.MTU {
+	if layerDHCPv4.Len() < specs.DHCPv4MinMessageSize || (opts.MTU > 0 && layerDHCPv4.Len() > opts.MTU) {
 		return fmt.Errorf("unexpected size of DHCPv4 message: %d", layerDHCPv4.Len())
 	}
 

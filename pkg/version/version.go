@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright The dhcp-relay Authors
 
+//go:build linux
+
 package version
 
 import (
@@ -40,12 +42,12 @@ func VCS(abbRevisionNum uint8) string {
 		}
 	}
 
-	if strings.EqualFold(vcsModified, "true") {
-		return baseVersion + "-dirty"
-	}
-
 	if len(vcsRevision) == 0 || vcsTime == "" {
 		return baseVersion + "-unknown"
+	}
+
+	if strings.EqualFold(vcsModified, "true") {
+		return baseVersion + "-dirty"
 	}
 
 	t, err := time.Parse(time.RFC3339, vcsTime)
@@ -54,6 +56,9 @@ func VCS(abbRevisionNum uint8) string {
 	}
 
 	var abbRevision string
+	if abbRevisionNum == 0 {
+		return baseVersion + "-unknown"
+	}
 	if len(vcsRevision) <= int(abbRevisionNum) {
 		abbRevision = string(vcsRevision)
 	} else {

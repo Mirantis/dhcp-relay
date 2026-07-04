@@ -42,6 +42,10 @@ services:
         COPY --chmod=0755 kea-entrypoint.sh /usr/local/bin/kea-entrypoint.sh
         ENTRYPOINT ["/usr/local/bin/kea-entrypoint.sh"]
     image: dhcp-relay-kea:e2e
+    # Reply to the source of each query (our relay) not giaddr. perfdhcp emulates its own relay so
+    # without this kea would unicast replies to giaddr and the host would route them around our relay.
+    environment:
+      KEA_TEST_SEND_RESPONSES_TO_SOURCE: ENABLE
     configs:
       - source: kea-dhcp4
         target: /etc/kea/kea-dhcp4.conf
@@ -74,8 +78,48 @@ services:
     volumes:
       - ./macpolicy:/etc/dhcp-relay
 
-  # perfdhcp load generator for the scale gate and benchmark. Fabricates many MACs
-  # from one NIC so promiscuous mode is required. Run via docker compose run.
+  # Phase 3 relay. Its client-facing NIC is unnumbered (the init below flushes that IPv4) so the relay must
+  # use the link map and RFC 3527 Link Selection to relay. giaddr auto-derives from the server-facing address.
+  relay-unnumbered:
+    <<: *relay-base
+    profiles: ["unnumbered"]
+    command:
+      - dhcp-relay
+      - -dhcp-server-address=kea
+      - -link-map=/etc/dhcp-relay/link-map.txt
+      - -debug
+      - -log-no-datetime
+    volumes:
+      - ./linkmap:/etc/dhcp-relay
+
+  # Shares the relay netns and strips the client-net IPv4 so the relay sees an unnumbered ingress. Exits after flushing.
+  # The distroless relay image has no shell or ip tool so a sidecar does the flush.
+  relay-unnumbered-init:
+    build:
+      context: .
+      dockerfile_inline: |
+        FROM debian:13-slim
+        RUN apt-get update \
+         && apt-get install -y --no-install-recommends iproute2 \
+         && rm -rf /var/lib/apt/lists/*
+    image: dhcp-relay-netinit:e2e
+    profiles: ["unnumbered"]
+    network_mode: "service:relay-unnumbered"
+    cap_add:
+      - NET_ADMIN
+    depends_on:
+      relay-unnumbered:
+        condition: service_started
+    command:
+      - /bin/sh
+      - -c
+      - |
+        ip -4 addr flush to 192.168.50.0/24
+        echo "unnumbered-init: flushed client-net IPv4"
+
+  # perfdhcp load generator for the benchmark. Fabricates many MACs from one NIC and
+  # broadcasts as a client through the relay, so promiscuous mode is required to catch
+  # the relayed replies addressed to those fabricated MACs. Run via docker compose run.
   perfdhcp:
     build:
       context: .
@@ -86,7 +130,7 @@ services:
          && rm -rf /var/lib/apt/lists/* \
          && command -v perfdhcp
     image: dhcp-relay-perfdhcp:e2e
-    profiles: ["scale"]
+    profiles: ["bench"]
     cap_add:
       - NET_RAW
       - NET_ADMIN

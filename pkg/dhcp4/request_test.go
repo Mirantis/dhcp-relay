@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright The dhcp-relay Authors
 
+//go:build linux
+
 package dhcp4_test
 
 import (
@@ -15,6 +17,7 @@ import (
 	"code.local/dhcp-relay/pkg/dhcp4"
 	"code.local/dhcp-relay/pkg/gpckt/dhcp"
 	"code.local/dhcp-relay/pkg/logger"
+	"code.local/dhcp-relay/pkg/specs"
 )
 
 // readFromListener reads one packet from a UDP listener with a short deadline.
@@ -105,6 +108,7 @@ func newSenderCfg(t *testing.T) *dhcp4.HandleOptions {
 		Logger:            logger.NewWithoutDatetime(),
 		PacketConn:        conn,
 		DHCPServerAddress: "127.0.0.1",
+		MaxHops:           specs.DHCPv4MaxHops,
 	}
 }
 
@@ -130,15 +134,16 @@ func TestHandleGenericRequestNoAddrs(t *testing.T) {
 		Logger:            logger.NewWithoutDatetime(),
 		PacketConn:        conn,
 		DHCPServerAddress: "127.0.0.1",
+		MaxHops:           specs.DHCPv4MaxHops,
 	}
 
-	err = dhcp4.HandleGenericRequest(cfg, nil, 999999, "DISCOVER", minimalDiscover())
+	err = dhcp4.HandleGenericRequest(t.Context(), cfg, nil, 999999, "DISCOVER", minimalDiscover())
 	if err == nil {
 		t.Fatal("expected an error for an IfIndex with no IPv4 addresses, got nil")
 	}
 
-	if !strings.Contains(err.Error(), "no IPv4 addresses") {
-		t.Errorf("error = %q, want it to contain \"no IPv4 addresses\"", err.Error())
+	if !strings.Contains(err.Error(), "no IPv4 addresses") && !strings.Contains(err.Error(), "interface address lookup error") {
+		t.Errorf("error = %q, want it to contain \"no IPv4 addresses\" or \"interface address lookup error\"", err.Error())
 	}
 }
 
@@ -151,7 +156,7 @@ func TestHandleGenericRequestInjectsOption82(t *testing.T) {
 	defer rcv.Close()
 
 	layerDHCPv4 := minimalDiscover()
-	if err := dhcp4.HandleGenericRequest(cfg, nil, ifIndex, "DISCOVER", layerDHCPv4); err != nil {
+	if err := dhcp4.HandleGenericRequest(t.Context(), cfg, nil, ifIndex, "DISCOVER", layerDHCPv4); err != nil {
 		t.Fatalf("HandleGenericRequest: %v", err)
 	}
 
@@ -183,7 +188,7 @@ func TestHandleGenericRequestPolicyTag(t *testing.T) {
 	dec := &dhcp4.Decision{PolicyTag: []byte{0xaa, 0xbb}}
 
 	layerDHCPv4 := minimalDiscover()
-	if err := dhcp4.HandleGenericRequest(cfg, dec, ifIndex, "DISCOVER", layerDHCPv4); err != nil {
+	if err := dhcp4.HandleGenericRequest(t.Context(), cfg, dec, ifIndex, "DISCOVER", layerDHCPv4); err != nil {
 		t.Fatalf("HandleGenericRequest: %v", err)
 	}
 
@@ -235,6 +240,23 @@ func TestForwardRelayedRequest(t *testing.T) {
 	decoded := decodeDHCPv4(t, received)
 	if decoded.Xid != layerDHCPv4.Xid {
 		t.Errorf("decoded Xid = 0x%x, want 0x%x", decoded.Xid, layerDHCPv4.Xid)
+	}
+}
+
+// TestForwardRelayedRequestHopsExceeded checks a relayed request at the hop maximum is discarded.
+func TestForwardRelayedRequestHopsExceeded(t *testing.T) {
+	cfg := newSenderCfg(t)
+
+	layerDHCPv4 := minimalDiscover()
+	layerDHCPv4.RelayHops = specs.DHCPv4MaxHops
+
+	err := dhcp4.ForwardRelayedRequest(cfg, nil, "REQUEST", layerDHCPv4)
+	if err == nil {
+		t.Fatal("expected an error for hop count at maximum, got nil")
+	}
+
+	if !strings.Contains(err.Error(), "hop count") {
+		t.Errorf("error = %q, want it to contain \"hop count\"", err.Error())
 	}
 }
 

@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright The dhcp-relay Authors
 
+//go:build linux
+
 package dhcp_test
 
 import (
@@ -25,9 +27,9 @@ func TestDeleteSplitOptions(t *testing.T) {
 		want []layers.DHCPOption
 	}{
 		{
-			name: "no duplicates end dropped",
+			name: "no duplicates end preserved",
 			in:   []layers.DHCPOption{opt1, opt2, end},
-			want: []layers.DHCPOption{opt1, opt2},
+			want: []layers.DHCPOption{opt1, opt2, end},
 		},
 		{
 			name: "duplicates merged",
@@ -35,14 +37,14 @@ func TestDeleteSplitOptions(t *testing.T) {
 			want: []layers.DHCPOption{opt2},
 		},
 		{
-			name: "pad skipped end dropped",
+			name: "pad skipped end preserved",
 			in:   []layers.DHCPOption{pad, opt1, pad, end},
-			want: []layers.DHCPOption{opt1},
+			want: []layers.DHCPOption{opt1, end},
 		},
 		{
-			name: "multiple duplicates",
+			name: "multiple duplicates end preserved",
 			in:   []layers.DHCPOption{opt1, opt1, opt2, opt2, end},
-			want: []layers.DHCPOption{},
+			want: []layers.DHCPOption{end},
 		},
 		{
 			name: "empty input",

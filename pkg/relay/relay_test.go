@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright The dhcp-relay Authors
 
+//go:build linux
+
 package relay_test
 
 import (
@@ -14,6 +16,7 @@ import (
 
 	"github.com/gopacket/gopacket/layers"
 
+	"code.local/dhcp-relay/pkg/cfgmatch"
 	"code.local/dhcp-relay/pkg/gpckt/dhcp"
 	"code.local/dhcp-relay/pkg/logger"
 	"code.local/dhcp-relay/pkg/macpolicy"
@@ -297,7 +300,7 @@ func TestReplyConfigBlackhole(t *testing.T) {
 
 // TestReplyConfigMatch threads the policy match function into ReplyNICMatch.
 func TestReplyConfigMatch(t *testing.T) {
-	reply := macpolicy.ReplyAction{Kind: macpolicy.ReplyMatch, NameGlobs: []string{"eth0"}}
+	reply := macpolicy.ReplyAction{Kind: macpolicy.ReplyMatch, Selector: cfgmatch.Selector{NameGlobs: []string{"eth0"}}}
 	action := macpolicy.Action{Reply: reply}
 
 	got := relay.ReplyConfig(action)

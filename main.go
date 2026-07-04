@@ -19,12 +19,16 @@ import (
 
 	"github.com/gopacket/gopacket"
 	"github.com/gopacket/gopacket/layers"
+	"golang.org/x/net/bpf"
+	"golang.org/x/net/ipv4"
 	"golang.org/x/sys/unix"
 
 	"code.local/dhcp-relay/pkg/bytecode"
 	"code.local/dhcp-relay/pkg/debug"
 	"code.local/dhcp-relay/pkg/dhcp4"
+	"code.local/dhcp-relay/pkg/filewatch"
 	"code.local/dhcp-relay/pkg/gpckt/dhcp"
+	"code.local/dhcp-relay/pkg/linkmap"
 	"code.local/dhcp-relay/pkg/logger"
 	"code.local/dhcp-relay/pkg/macpolicy"
 	"code.local/dhcp-relay/pkg/relay"
@@ -51,6 +55,10 @@ var (
 	flagMACPolicy              string
 	flagMACPolicyInterval      time.Duration
 
+	flagLinkMap         string
+	flagLinkMapInterval time.Duration
+	flagGiaddr          string
+
 	flagLogWithoutDatetime bool
 	flagReplyTTL           uint64
 	flagMTU                uint64
@@ -64,6 +72,8 @@ var (
 	flagReplyNICCacheTTL        time.Duration
 
 	flagMaxHandlers uint64
+
+	flagMaxHops uint64
 
 	flagVersion bool
 
@@ -82,7 +92,13 @@ func main() {
 	flag.StringVar(&flagMACPolicy,
 		"mac-policy", "", "Path to the MAC policy file. Empty disables the policy.")
 	flag.DurationVar(&flagMACPolicyInterval,
-		"mac-policy-interval", macpolicy.DefaultPollInterval, "Poll interval for reloading the MAC policy file.")
+		"mac-policy-interval", filewatch.DefaultPollInterval, "Poll interval for reloading the MAC policy file.")
+	flag.StringVar(&flagLinkMap,
+		"link-map", "", "Path to the ingress NIC to subnet link map for unnumbered relay interfaces. Empty disables it.")
+	flag.DurationVar(&flagLinkMapInterval,
+		"link-map-interval", filewatch.DefaultPollInterval, "Poll interval for reloading the link map file.")
+	flag.StringVar(&flagGiaddr,
+		"giaddr", "", "Override the giaddr for an unnumbered ingress. Empty auto-derives the server-facing address.")
 	flag.BoolVar(&flagLogWithoutDatetime,
 		"log-no-datetime", false, "Log without datetime prefix (systemd).")
 	flag.Uint64Var(&flagReplyTTL,
@@ -112,6 +128,9 @@ func main() {
 
 	flag.Uint64Var(&flagMaxHandlers,
 		"max-handlers", DefaultMaxHandlers, "Maximum concurrent DHCPv4 handler goroutines. Excess packets are dropped.")
+
+	flag.Uint64Var(&flagMaxHops,
+		"max-hops", specs.DHCPv4MaxHops, "Maximum DHCPv4 relay hop count. Packets at or above this value are dropped.")
 
 	flag.Usage = func() {
 		//nolint:gosec // G705: writing to stderr, not an untrusted sink.
@@ -160,8 +179,27 @@ func main() {
 		cl.Fatalf("MTU must be in range of %d...%d.\n", specs.DHCPv4MinMessageSize, math.MaxUint16)
 	}
 
-	if flagMaxHandlers < 1 {
-		cl.Fatalf("Max handlers must be at least 1.\n")
+	if flagMaxHandlers < 1 || flagMaxHandlers > math.MaxInt32 {
+		cl.Fatalf("Max handlers must be in range of 1...%d.\n", math.MaxInt32)
+	}
+
+	if flagMaxHops < 1 || flagMaxHops > math.MaxUint8 {
+		cl.Fatalf("Max hops must be in range of 1...%d.\n", math.MaxUint8)
+	}
+
+	var giaddr net.IP
+
+	if flagGiaddr != "" {
+		giaddr = net.ParseIP(flagGiaddr).To4()
+		// Require global unicast so the reply path recognizes the echoed giaddr as locally deliverable. A
+		// loopback, link-local, or multicast giaddr would make the server reply route away from the client.
+		if !dhcp4.IsGlobalUnicastIPv4(giaddr) {
+			cl.Fatalf("giaddr must be a global unicast IPv4 address, got %q.\n", flagGiaddr)
+		}
+	}
+
+	if flagGiaddr != "" && flagLinkMap == "" {
+		cl.Warnf("-giaddr has no effect without -link-map (a numbered ingress uses its own address as giaddr)\n")
 	}
 
 	cl.Infof("DHCPv4-Relay version: %s\n", version.VCS(vcsAbbRevisionNum))
@@ -178,6 +216,19 @@ func main() {
 		policy = m
 
 		defer m.Close()
+	}
+
+	var links *linkmap.Map
+
+	if flagLinkMap != "" {
+		lm, err := linkmap.New(flagLinkMap, flagLinkMapInterval, cl)
+		if err != nil {
+			cl.Fatalf("Error loading link map: %v\n", err)
+		}
+
+		links = lm
+
+		defer lm.Close()
 	}
 
 	// A shutdown signal must run the deferred cleanup above so the process is not killed with it pending.
@@ -208,9 +259,19 @@ func main() {
 		return
 	}
 
-	pconn, err := sockets.ListenPacketConn4("udp4", net.IPv4zero, specs.DHCPv4ServerPort)
+	pconn, err := sockets.ListenPacketConn4(ctx, "udp4", net.IPv4zero, specs.DHCPv4ServerPort)
 	if err != nil {
 		cl.Errorf("Error binding to UDP4 socket: %v\n", err)
+
+		return
+	}
+
+	// A drop all BPF on the send only UDP socket guarantees nothing can ever be read from it.
+	ppconn := ipv4.NewPacketConn(pconn)
+	if err := ppconn.SetBPF([]bpf.RawInstruction{
+		{Op: unix.BPF_RET | unix.BPF_K, Jt: 0, Jf: 0, K: 0}, // filter ALL
+	}); err != nil {
+		cl.Errorf("Error attaching BPF to UDP4 socket: %v\n", err)
 
 		return
 	}
@@ -218,16 +279,23 @@ func main() {
 		Logger:                  cl,
 		PacketConn:              pconn,
 		ReplyInterfaceCache:     dhcp4.NewInterfaceCache(flagReplyNICCacheTTL),
+		Giaddr:                  giaddr,
 		DHCPServerAddress:       flagUpstreamDHCPServerAddr,
+		MaxHops:                 uint8(flagMaxHops), //nolint:gosec // flagMaxHops bounded <= MaxUint8 above
 		BroadcastReplyL2Unicast: flagBroadcastReplyL2Unicast,
 		ReplyTTL:                uint8(flagReplyTTL), //nolint:gosec // flagReplyTTL bounded <= MaxUint8 above
+	}
+
+	// Assign only a live map so the LinkSubnetLookup interface stays nil when no link map is configured.
+	if links != nil {
+		cfg.LinkMap = links
 	}
 
 	// An expired read deadline wakes the blocked Receive so the loop can observe the context and return.
 	stopWake := context.AfterFunc(ctx, func() { _ = rs.SetReadDeadline(time.Now()) })
 	defer stopWake()
 
-	handlersSem = make(chan struct{}, flagMaxHandlers)
+	handlersSem = make(chan struct{}, int(flagMaxHandlers)) //nolint:gosec // flagMaxHandlers bounded <= MaxInt32 above
 
 	for {
 		//nolint:makezero,gosec // C-style byte buffer; flagMTU bounded <= MaxUint16 above.
@@ -241,6 +309,7 @@ func main() {
 				// A second signal during the drain forces an immediate exit. Registered now so it only sees the next signal.
 				forceQuit := make(chan os.Signal, 1)
 				signal.Notify(forceQuit, os.Interrupt, unix.SIGTERM)
+				stop() // stop the NotifyContext so only forceQuit receives signals during drain
 
 				switch waitForHandlers(&handlersWG, forceQuit, shutdownGracePeriod) {
 				case drainForced:
@@ -261,12 +330,13 @@ func main() {
 
 		cl.Debugf("Received %d bytes of data from socket\n", n)
 
-		handlePacket(cl, cfg, policy, sall, buf[:n])
+		handlePacket(ctx, cl, cfg, policy, sall, buf[:n])
 	}
 }
 
 // handlePacket decodes and validates one received frame then hands it to the DHCPv4 handler goroutine.
 func handlePacket(
+	ctx context.Context,
 	cl *logger.Config,
 	cfg *dhcp4.HandleOptions,
 	policy *macpolicy.Map,
@@ -346,7 +416,8 @@ func handlePacket(
 	case handlersSem <- struct{}{}:
 		handlersWG.Go(func() {
 			defer func() { <-handlersSem }()
-			dhcp4.Handle(cfg, dec, sall, &layerEthernet, &layerIPv4, &layerUDP, &layerDHCPv4)
+			// dhcp4.Handle recovers its own panic with package context, so the goroutine needs no second recover.
+			dhcp4.Handle(ctx, cfg, dec, sall, &layerEthernet, &layerIPv4, &layerUDP, &layerDHCPv4)
 		})
 	default:
 		cl.Warnf("Dropping DHCPv4 message from client %s handler pool full\n", layerDHCPv4.ClientHWAddr)
@@ -363,6 +434,7 @@ const (
 )
 
 // waitForHandlers drains in flight handlers within grace returning early on forceQuit. It isolates the shutdown drain for testing.
+// The wg.Wait goroutine blocks until wg reaches zero, callers returning without draining accept it leaks until process exit.
 func waitForHandlers(wg *sync.WaitGroup, forceQuit <-chan os.Signal, grace time.Duration) drainResult {
 	waitDone := make(chan struct{})
 

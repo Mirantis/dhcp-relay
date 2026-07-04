@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright The dhcp-relay Authors
 
+//go:build linux
+
 package specs
 
 // https://en.wikipedia.org/wiki/User_Datagram_Protocol
@@ -10,5 +12,5 @@ const (
 	UDPFieldSizeLength          = 16
 	UDPFieldSizeChecksum        = 16
 
-	UDPHeaderSize = UDPFieldSizeSourcePort + UDPFieldSizeDestinationPort + UDPFieldSizeLength + UDPFieldSizeChecksum
+	UDPHeaderSizeBits = UDPFieldSizeSourcePort + UDPFieldSizeDestinationPort + UDPFieldSizeLength + UDPFieldSizeChecksum
 )

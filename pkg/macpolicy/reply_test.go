@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright The dhcp-relay Authors
 
+//go:build linux
+
 package macpolicy_test
 
 import (
@@ -68,7 +70,7 @@ func TestReplyActionMatch(t *testing.T) {
 }
 
 func TestReplyActionErrors(t *testing.T) {
-	for _, field := range []string{"@bogus", "name=", "name=[", "eth0", "foo=bar"} {
+	for _, field := range []string{"@bogus", "name=", "name=[", "name=eth*[a", "mac=aa:*[b", "eth0", "foo=bar"} {
 		if _, _, err := macpolicy.Parse(strings.NewReader("02:00:00:00:00:01 @default " + field + "\n")); err == nil {
 			t.Errorf("Parse with reply %q must fail", field)
 		}

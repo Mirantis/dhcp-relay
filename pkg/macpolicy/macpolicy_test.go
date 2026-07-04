@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright The dhcp-relay Authors
 
+//go:build linux
+
 package macpolicy_test
 
 import (
@@ -290,6 +292,17 @@ func TestParseIdentifierLengthCap(t *testing.T) {
 	}
 }
 
+// hasWarning reports whether any warning contains substr.
+func hasWarning(warnings []string, substr string) bool {
+	for _, w := range warnings {
+		if strings.Contains(w, substr) {
+			return true
+		}
+	}
+
+	return false
+}
+
 // TestParseDuplicateWarnings asserts Parse reports duplicate keys and keeps the last entry for both the catch all and a plain identifier.
 func TestParseDuplicateWarnings(t *testing.T) {
 	table, warnings, err := macpolicy.Parse(strings.NewReader("* @default\n* @blackhole\n"))
@@ -297,8 +310,10 @@ func TestParseDuplicateWarnings(t *testing.T) {
 		t.Fatalf("Parse: %v", err)
 	}
 
-	if len(warnings) != 1 || !strings.Contains(warnings[0], "duplicate") {
-		t.Errorf("warnings = %q, want one duplicate catch all warning", warnings)
+	// A blackhole catch all with no entries also warns 'no relayable entries', so match the duplicate warning
+	// among the warnings rather than assuming it is the only one.
+	if !hasWarning(warnings, "duplicate") {
+		t.Errorf("warnings = %q, want a duplicate catch all warning", warnings)
 	}
 
 	// The last catch all wins as the fallback.

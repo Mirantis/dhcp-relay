@@ -11,10 +11,15 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   create-vendor-bump-PR:
     name: Update Vendor Branch
     runs-on: ubuntu-latest
+    timeout-minutes: 15
 
     permissions:
       contents: write
@@ -27,7 +32,7 @@ jobs:
         go-version: '1.26'
 
     - name: Checkout 'main' branch
-      uses: actions/checkout@v6
+      uses: actions/checkout@v7
       with:
         ref: main
         path: .main
@@ -58,7 +63,7 @@ jobs:
         fi
 
     - name: Checkout 'vendor' branch
-      uses: actions/checkout@v6
+      uses: actions/checkout@v7
       with:
         ref: vendor
         path: .vendor
@@ -67,6 +72,7 @@ jobs:
       run: |
         cp .main/go.mod .vendor/go.mod
         cp .main/go.sum .vendor/go.sum
+        rm -rf .vendor/vendor
         cp -a .main/vendor .vendor/
 
     - name: Create Pull Request

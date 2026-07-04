@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright The dhcp-relay Authors
 
+//go:build linux
+
 // Package macpolicy implements a hot reloadable per client policy for the DHCPv4 relay backed by an atomic Table pointer.
 package macpolicy
 
@@ -11,12 +13,11 @@ import (
 	"fmt"
 	"io"
 	"net"
-	"os"
 	"strings"
-	"sync"
-	"sync/atomic"
 	"time"
 
+	"code.local/dhcp-relay/pkg/cfgmatch"
+	"code.local/dhcp-relay/pkg/filewatch"
 	"code.local/dhcp-relay/pkg/gpckt/dhcp"
 	"code.local/dhcp-relay/pkg/logger"
 	"code.local/dhcp-relay/pkg/specs"
@@ -165,23 +166,34 @@ func ValidateServerContext(ctx context.Context, a Action, seen serverSet) error 
 	return nil
 }
 
-// Map is a live policy backed by a file. A poller swaps in a fresh Table on each file change so Lookup always sees one snapshot.
+// Map is a live policy backed by a file that filewatch reloads into a fresh Table so Lookup sees one snapshot.
 type Map struct {
-	snap     atomic.Pointer[Table]
-	log      *logger.Config
-	done     chan struct{}
-	lastInfo os.FileInfo
-	path     string
-	interval time.Duration
-	// mu serializes Reload so lastInfo has a single writer.
-	mu        sync.Mutex
-	closeOnce sync.Once
-	wg        sync.WaitGroup
+	w *filewatch.Watcher[Table]
+}
+
+// New loads the policy once so a bad file fails fast then starts a poller. The caller must Close to stop it.
+func New(path string, interval time.Duration, log *logger.Config) (*Map, error) {
+	w, err := filewatch.New(filewatch.Config[Table]{
+		Log:      log,
+		Parse:    Parse,
+		Validate: func(ctx context.Context, t *Table) error { return t.ValidateContext(ctx) },
+		Describe: func(t *Table) string {
+			return fmt.Sprintf("%d entries, default action: %s", len(t.entries), t.fallback)
+		},
+		Path:     path,
+		Name:     "MAC policy",
+		Interval: interval,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return &Map{w: w}, nil
 }
 
 // LookupID returns the Action and matched identifier from the current snapshot, concurrency safe.
 func (m *Map) LookupID(ids ...[]byte) (Action, []byte) {
-	t := m.snap.Load()
+	t := m.w.Snapshot()
 	if t == nil {
 		return Action{}, nil
 	}
@@ -196,80 +208,19 @@ func (m *Map) Lookup(ids ...[]byte) Action {
 	return a
 }
 
-// Reload reads and validates the file then atomically publishes the new Table. Errors keep the previous snapshot.
+// Reload rereads the policy file and republishes it. Errors keep the previous snapshot.
 func (m *Map) Reload() error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	//nolint:gosec // G304: the policy path is an operator supplied trusted CLI flag.
-	f, err := os.Open(m.path)
-	if err != nil {
-		return fmt.Errorf("open %s: %w", m.path, err)
-	}
-	defer f.Close()
-
-	// Stat the open file so the change guard below and lastInfo describe the parsed bytes.
-	info, err := f.Stat()
-	if err != nil {
-		return fmt.Errorf("stat %s: %w", m.path, err)
-	}
-
-	t, warnings, err := Parse(f)
-	if err != nil {
-		return err
-	}
-
-	// Reject a file that changed while it was being read so a torn in place write is never published. The poller retries on the next tick.
-	after, err := f.Stat()
-	if err != nil {
-		return fmt.Errorf("stat %s: %w", m.path, err)
-	}
-
-	if FileChanged(info, after) {
-		return fmt.Errorf("policy %s changed during reload", m.path)
-	}
-
-	// Revalidate servers so one that stopped resolving fails the reload. The context lets Close abort a lookup still in flight.
-	ctx, cancel := m.CloseContext()
-	defer cancel()
-
-	if err := t.ValidateContext(ctx); err != nil {
-		return err
-	}
-
-	for _, w := range warnings {
-		m.log.Warnf("MAC policy: %s\n", w)
-	}
-
-	m.snap.Store(t)
-	m.lastInfo = info
-
-	if len(t.entries) == 0 && t.fallback.Kind == ActionBlackhole {
-		m.log.Warnf("MAC policy %s has no relayable entries: every DHCPv4 message will be dropped\n", m.path)
-	}
-
-	m.log.Infof("MAC policy loaded from %s (%d entries, default action: %s)\n", m.path, len(t.entries), t.fallback)
-
-	return nil
+	return m.w.Reload()
 }
 
-// CloseContext returns a context that Close cancels. The caller must call cancel to release the bridge goroutine.
+// CloseContext returns a context canceled when the Map is closed.
 func (m *Map) CloseContext() (context.Context, context.CancelFunc) {
-	ctx, cancel := context.WithCancel(context.Background())
+	return m.w.CloseContext()
+}
 
-	if m.done == nil {
-		return ctx, cancel
-	}
-
-	go func() {
-		select {
-		case <-m.done:
-			cancel()
-		case <-ctx.Done():
-		}
-	}()
-
-	return ctx, cancel
+// Close stops the poller. Safe to call more than once.
+func (m *Map) Close() error {
+	return m.w.Close()
 }
 
 // ParseAction interprets the optional forward action token. Empty or "@default" relays via CLI server, "@blackhole" drops.
@@ -290,7 +241,7 @@ func ParseAction(token string) (Action, error) {
 
 // ParseIdentifier decodes a policy key into raw identifier bytes. A HexPrefix key is raw hex (an Option 61 client id).
 func ParseIdentifier(token string) ([]byte, error) {
-	if strings.HasPrefix(token, HexPrefix) {
+	if strings.HasPrefix(token, HexPrefix) || strings.HasPrefix(token, "0X") {
 		id, err := hex.DecodeString(token[len(HexPrefix):])
 		if err != nil {
 			return nil, fmt.Errorf("invalid hex identifier %q: %w", token, err)
@@ -314,7 +265,7 @@ func ParseIdentifier(token string) ([]byte, error) {
 	}
 
 	// The relay only handles 6 byte Ethernet addresses. Reject longer forms such as EUI64 that net.ParseMAC accepts.
-	if len(id) != specs.EthernetMACLength {
+	if len(id) != specs.EthernetMACLengthBytes {
 		return nil, fmt.Errorf("identifier %q must be a 6 byte MAC (use the %s prefix for other client ids)", token, HexPrefix)
 	}
 
@@ -332,17 +283,7 @@ func Parse(r io.Reader) (*Table, []string, error) {
 	scanner := bufio.NewScanner(r)
 
 	for lineNum := 1; scanner.Scan(); lineNum++ {
-		fields := strings.Fields(scanner.Text())
-
-		// A field starting with "#" begins a comment so "#" stays literal inside a value.
-		for i, f := range fields {
-			if strings.HasPrefix(f, CommentPrefix) {
-				fields = fields[:i]
-
-				break
-			}
-		}
-
+		fields := cfgmatch.Fields(scanner.Text())
 		if len(fields) == 0 {
 			continue
 		}
@@ -403,6 +344,10 @@ func Parse(r io.Reader) (*Table, []string, error) {
 
 	if err := scanner.Err(); err != nil {
 		return nil, nil, fmt.Errorf("read error: %w", err)
+	}
+
+	if len(t.entries) == 0 && t.fallback.Kind == ActionBlackhole {
+		warnings = append(warnings, "no relayable entries: every DHCPv4 message will be dropped")
 	}
 
 	return t, warnings, nil

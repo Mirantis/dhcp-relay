@@ -22,11 +22,20 @@ TEMP_FILES=()
 # Relay service under test. Each phase sets it before sourcing.
 RELAY_SVC="${RELAY_SVC:-relay}"
 
+# Report title for the kea stats summary emitted by cleanup. Set by each phase script.
+KEA_REPORT_TITLE="${KEA_REPORT_TITLE:-e2e}"
+
+# Absolute path to the e2e directory so cleanup works regardless of cwd.
+E2E_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+MACPOLICY_DIR="${E2E_DIR}/macpolicy"
+LINKMAP_DIR="${E2E_DIR}/linkmap"
+
 # export_relay_profile activates the compose profile so up, logs, and down all see the service.
 export_relay_profile() {
   case "${RELAY_SVC}" in
     relay) export COMPOSE_PROFILES="classic" ;;
     relay-policy) export COMPOSE_PROFILES="policy" ;;
+    relay-unnumbered) export COMPOSE_PROFILES="unnumbered" ;;
     *) echo "FAIL: unknown RELAY_SVC ${RELAY_SVC}"; exit 1 ;;
   esac
 }
@@ -38,16 +47,24 @@ relay_logs() {
   docker compose logs --no-color "${RELAY_SVC}"
 }
 
+# relay_ready waits up to 15s for the relay to log its startup banner.
+relay_ready() {
+  wait_log 'DHCPv4-Relay version:' "${RELAY_SVC} did not become ready"
+}
+
 # wait_log polls the relay log for a fixed string for up to 15s then fails.
+# grep reads the log stream directly so packet-debug NUL bytes never hit a command substitution.
 wait_log() {
   local needle="$1" msg="$2" i
   for i in $(seq 1 30); do
-    if grep -aqF -- "${needle}" <<<"$(relay_logs)"; then
+    if relay_logs 2>/dev/null | grep -aqF -- "${needle}"; then
       return 0
     fi
     sleep 0.5
   done
   echo "FAIL: ${msg}"
+  echo "--- last relay log lines ---"
+  relay_logs 2>/dev/null | tail -20
   exit 1
 }
 
@@ -55,12 +72,14 @@ wait_log() {
 wait_log_re() {
   local pattern="$1" msg="$2" i
   for i in $(seq 1 30); do
-    if grep -aqE -- "${pattern}" <<<"$(relay_logs)"; then
+    if relay_logs 2>/dev/null | grep -aqE -- "${pattern}"; then
       return 0
     fi
     sleep 0.5
   done
   echo "FAIL: ${msg}"
+  echo "--- last relay log lines ---"
+  relay_logs 2>/dev/null | tail -20
   exit 1
 }
 
@@ -113,14 +132,14 @@ kea_ready() {
 
 kea_reset_stats() {
   kea_cmd '{"command":"statistic-reset-all"}' >/dev/null
+  kea_cmd '{"command":"lease4-wipe"}' >/dev/null
 }
 
-# kea_stat prints an integer statistic (0 when absent, empty, or unreadable).
+# kea_stat prints an integer statistic (0 when absent). Command or parse failures are hard errors.
 kea_stat() {
   local out
-  # The || true and non numeric fallback map kea errors to 0. Pair assert_delta_zero with an unmitigated kea check so a missing value is not masked.
   out="$(kea_cmd "{\"command\":\"statistic-get\",\"arguments\":{\"name\":\"$1\"}}" 2>/dev/null \
-    | jq -r --arg n "$1" '.arguments[$n][0][0] // 0' 2>/dev/null)" || true
+    | jq -r --arg n "$1" '.arguments[$n][0][0] // 0')" || { echo "FAIL: kea_stat '$1' unreadable" >&2; exit 1; }
 
   # Emit 0 for empty or non numeric output so arithmetic callers never see a blank.
   case "$out" in
@@ -129,11 +148,11 @@ kea_stat() {
   esac
 }
 
-# lease_count prints the number of leases in subnet 1.
+# lease_count prints the number of leases in subnet 1. Command or parse failures are hard errors.
 lease_count() {
   local out
   out="$(kea_cmd '{"command":"lease4-get-all","arguments":{"subnets":[1]}}' 2>/dev/null \
-    | jq -r 'if .result == 0 then (.arguments.leases | length) else empty end' 2>/dev/null)" || true
+    | jq -r 'if .result == 0 then (.arguments.leases | length) else empty end')" || { echo "FAIL: lease_count unreadable" >&2; exit 1; }
   case "$out" in
     '' | *[!0-9]*) echo 0 ;;
     *) echo "$out" ;;
@@ -182,11 +201,12 @@ circuit_id_hex() {
 
 # assert_lease_opt82 checks the MAC lease carries Option 82 with the circuit ID for the ingress ifIndex the relay logged.
 assert_lease_opt82() {
-  local mac="$1" msg="$2" ifindex want got
+  local mac="$1" msg="$2" ifindex want got match
   # -a so packet debug bytes in the log never make grep treat the stream as binary.
   # || true so a no-match pipeline does not trip errexit before the diagnostic below.
-  ifindex="$(relay_logs | grep -aF "$mac" | grep -oE 'IfIndex=[0-9]+' | head -1 | cut -d= -f2 || true)"
-  [ -n "$ifindex" ] || { echo "FAIL: ${msg} (no IfIndex logged for ${mac})"; exit 1; }
+  match="$(relay_logs | grep -aF "$mac" | tail -1 || true)"
+  ifindex="$(printf '%s' "$match" | grep -oE 'IfIndex=[0-9]+' | head -1 | cut -d= -f2 || true)"
+  [ -n "$ifindex" ] || { echo "FAIL: ${msg} (no IfIndex logged for ${mac}); last relay line: ${match}"; exit 1; }
   want="$(circuit_id_hex "$ifindex")"
   got="$(kea_cmd "{\"command\":\"lease4-get-by-hw-address\",\"arguments\":{\"hw-address\":\"${mac}\"}}" \
     | jq -r '.arguments.leases[0]["user-context"] // {} | tostring' | tr '[:upper:]' '[:lower:]' | tr -d ' ')"
@@ -197,8 +217,10 @@ assert_lease_opt82() {
 }
 
 # kea_report appends a Markdown snapshot of what kea observed to the CI job summary.
+# An empty title skips the snapshot so debug only runs collect no table.
 kea_report() {
   local title="$1" out="${GITHUB_STEP_SUMMARY:-/dev/stdout}" s
+  [ -z "$title" ] && return 0
   {
     echo "### Kea view: ${title}"
     echo
@@ -213,13 +235,18 @@ kea_report() {
   } >> "$out"
 }
 
-# cleanup dumps the relay and kea logs then tears down the stack and volumes.
+# cleanup dumps the relay and kea logs, writes the kea stats summary, then tears down the stack and volumes.
 cleanup() {
+  kea_report "${KEA_REPORT_TITLE}" 2>/dev/null || true
   echo "=== relay logs (${RELAY_SVC}) ==="
   docker compose logs --no-color "${RELAY_SVC}" || true
   echo "=== kea logs ==="
   docker compose logs --no-color kea || true
   docker compose down -v --remove-orphans || true
-  rm -rf ./macpolicy
-  [ "${#TEMP_FILES[@]}" -gt 0 ] && rm -f "${TEMP_FILES[@]}" 2>/dev/null || true
+  rm -rf "${MACPOLICY_DIR:-./macpolicy}" "${LINKMAP_DIR:-./linkmap}"
+  if [ "${#TEMP_FILES[@]}" -gt 0 ]; then
+    rm -f "${TEMP_FILES[@]}" 2>/dev/null || true
+  fi
 }
+
+trap cleanup EXIT

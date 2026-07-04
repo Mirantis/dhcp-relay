@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright The dhcp-relay Authors
 
+//go:build linux
+
 package debug
 
 import (
@@ -119,6 +121,8 @@ func RuntimeMetricsHandler(w http.ResponseWriter, _ *http.Request) {
 			fmt.Fprintf(w, "%s histogram buckets=%d\n", s.Name, len(h.Buckets))
 		case metrics.KindBad:
 			fmt.Fprintf(w, "%s unsupported (%s)\n", s.Name, descs[i].Description)
+		default:
+			fmt.Fprintf(w, "%s unsupported (unknown kind %d)\n", s.Name, s.Value.Kind())
 		}
 	}
 }

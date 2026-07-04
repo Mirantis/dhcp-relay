@@ -1,9 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright The dhcp-relay Authors
 
+//go:build linux
+
 package gpckt
 
 import (
+	"errors"
 	"fmt"
 
 	"github.com/gopacket/gopacket"
@@ -67,6 +70,10 @@ func GetDHCPv4(packet gopacket.Packet) *layers.DHCPv4 {
 }
 
 func CopyDHCPv4(layerDHCPv4 *layers.DHCPv4) (*layers.DHCPv4, error) {
+	if layerDHCPv4 == nil {
+		return nil, errors.New("copy error: source DHCPv4 layer is nil")
+	}
+
 	out := new(layers.DHCPv4)
 
 	if err := out.DecodeFromBytes(layerDHCPv4.Contents, gopacket.NilDecodeFeedback); err != nil {

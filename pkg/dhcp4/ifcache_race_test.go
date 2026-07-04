@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright The dhcp-relay Authors
 
+//go:build linux
+
 package dhcp4_test
 
 import (
@@ -91,10 +93,10 @@ func TestInterfaceCacheRefetchSerialized(t *testing.T) {
 
 	wg.Wait()
 
-	// All concurrent callers within the TTL must share the same backing array.
+	// All concurrent callers within the TTL must receive equivalent data.
 	for i := 1; i < len(results); i++ {
-		if len(results[0]) > 0 && len(results[i]) > 0 && &results[0][0] != &results[i][0] {
-			t.Errorf("goroutine %d got a different snapshot backing array", i)
+		if len(results[0]) > 0 && len(results[i]) > 0 && results[0][0].Index != results[i][0].Index {
+			t.Errorf("goroutine %d got a different snapshot", i)
 		}
 	}
 }

@@ -1,10 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright The dhcp-relay Authors
 
+//go:build linux
+
 package sockets
 
 import (
 	"context"
+	"errors"
 	"net"
 	"strconv"
 	"syscall"
@@ -36,18 +39,27 @@ func ControlReuseAddrAndPort(_, _ string, c syscall.RawConn) error {
 	return opErr
 }
 
-func ListenPacketConn4(network string, addr net.IP, port uint16) (
+func ListenPacketConn4(ctx context.Context, network string, addr net.IP, port uint16) (
 	net.PacketConn, error,
 ) {
+	if addr == nil {
+		return nil, errors.New("addr must not be nil")
+	}
+
+	addr4 := addr.To4()
+	if addr4 == nil {
+		return nil, errors.New("addr must be a valid IPv4 address")
+	}
+
 	lc := net.ListenConfig{
 		Control: ControlReuseAddrAndPort, // Set SO_REUSEADDR, SO_REUSEPORT.
 	}
 
 	conn, err := lc.ListenPacket(
-		context.Background(),
+		ctx,
 		network,
 		net.JoinHostPort(
-			addr.To4().String(),
+			addr4.String(),
 			strconv.Itoa(int(port)),
 		),
 	)

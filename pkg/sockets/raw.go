@@ -1,16 +1,22 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright The dhcp-relay Authors
 
+//go:build linux
+
 package sockets
 
 import (
 	"errors"
+	"fmt"
 	"net"
 	"os"
 	"time"
 
 	"golang.org/x/sys/unix"
 )
+
+// ErrNotInitialized is returned when a Raw method is called before Create succeeds.
+var ErrNotInitialized = errors.New("socket not initialized")
 
 // Raw wraps a nonblocking AF_PACKET socket in an os.File so blocking calls park on the Go runtime poller.
 type Raw struct {
@@ -24,23 +30,48 @@ func (r *Raw) Create(protocol uint16) error {
 		return err
 	}
 
+	// Drop locally transmitted frames so the relay never re-ingests its own forwarded packets
+	// through this socket. Kernels before 4.20 lack the option, treat ENOPROTOOPT as a no-op.
+	if err := unix.SetsockoptInt(fd, unix.SOL_PACKET, unix.PACKET_IGNORE_OUTGOING, 1); err != nil &&
+		!errors.Is(err, unix.ENOPROTOOPT) {
+		_ = unix.Close(fd)
+
+		return fmt.Errorf("set PACKET_IGNORE_OUTGOING: %w", err)
+	}
+
 	// A nonblocking descriptor makes os.NewFile register it with the runtime poller.
+	if r.f != nil {
+		_ = r.f.Close()
+	}
+
 	r.f = os.NewFile(uintptr(fd), "af-packet") //nolint:gosec // G115: kernel FDs are non negative and fit uintptr.
 
 	return nil
 }
 
 func (r *Raw) Close() error {
+	if r.f == nil {
+		return ErrNotInitialized
+	}
+
 	return r.f.Close()
 }
 
 // SetReadDeadline wakes a Receive blocked past t. A zero t clears the deadline.
 func (r *Raw) SetReadDeadline(t time.Time) error {
+	if r.f == nil {
+		return ErrNotInitialized
+	}
+
 	return r.f.SetReadDeadline(t)
 }
 
 // control runs f on the descriptor through the file's SyscallConn so the call cannot race a concurrent Close.
 func (r *Raw) control(f func(fd int) error) error {
+	if r.f == nil {
+		return ErrNotInitialized
+	}
+
 	rc, err := r.f.SyscallConn()
 	if err != nil {
 		return err
@@ -56,15 +87,30 @@ func (r *Raw) control(f func(fd int) error) error {
 	return opErr
 }
 
+// setLinkLayerAddr copies hwAddr into sa and sets Halen, returning an error if the address exceeds the sockaddr capacity.
+func setLinkLayerAddr(sa *unix.SockaddrLinklayer, hwAddr net.HardwareAddr) error {
+	if hwAddr == nil {
+		return nil
+	}
+
+	if len(hwAddr) > len(sa.Addr) {
+		return fmt.Errorf("hardware address length %d exceeds sockaddr capacity %d", len(hwAddr), len(sa.Addr))
+	}
+
+	sa.Halen = uint8(len(hwAddr)) //nolint:gosec // validated to fit uint8 and sa.Addr above.
+	copy(sa.Addr[:], hwAddr)
+
+	return nil
+}
+
 func (r *Raw) Bind(ifIndex int, hwAddr net.HardwareAddr, protocol uint16) error {
 	sa := &unix.SockaddrLinklayer{
 		Protocol: protocol,
 		Ifindex:  ifIndex,
 	}
 
-	if hwAddr != nil {
-		sa.Halen = uint8(len(hwAddr)) //nolint:gosec // MAC length is 6, fits uint8.
-		copy(sa.Addr[:], hwAddr)
+	if err := setLinkLayerAddr(sa, hwAddr); err != nil {
+		return err
 	}
 
 	return r.control(func(fd int) error { return unix.Bind(fd, sa) })
@@ -87,6 +133,10 @@ func (r *Raw) AttachBPF(bytecode []unix.SockFilter) error {
 
 // Receive blocks until one frame arrives and returns its length and link layer source.
 func (r *Raw) Receive(buf []byte) (int, *unix.SockaddrLinklayer, error) {
+	if r.f == nil {
+		return 0, nil, ErrNotInitialized
+	}
+
 	rc, err := r.f.SyscallConn()
 	if err != nil {
 		return 0, nil, err
@@ -122,14 +172,17 @@ func (r *Raw) Receive(buf []byte) (int, *unix.SockaddrLinklayer, error) {
 }
 
 func (r *Raw) Send(ifIndex int, hwAddr net.HardwareAddr, protocol uint16, buf []byte) (int, error) {
+	if r.f == nil {
+		return 0, ErrNotInitialized
+	}
+
 	sa := &unix.SockaddrLinklayer{
 		Ifindex:  ifIndex,
 		Protocol: protocol,
 	}
 
-	if hwAddr != nil {
-		sa.Halen = uint8(len(hwAddr)) //nolint:gosec // MAC length is 6, fits uint8.
-		copy(sa.Addr[:], hwAddr)
+	if err := setLinkLayerAddr(sa, hwAddr); err != nil {
+		return 0, err
 	}
 
 	rc, err := r.f.SyscallConn()

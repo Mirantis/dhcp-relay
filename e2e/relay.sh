@@ -10,6 +10,7 @@ cd "$(dirname "$0")"
 
 # Policy free relay service. See compose.yaml.
 RELAY_SVC="relay"
+KEA_REPORT_TITLE="functional: policy-free relay (every client relayed)"
 
 # shellcheck source-path=SCRIPTDIR
 # shellcheck source=lib.sh
@@ -20,7 +21,10 @@ trap cleanup EXIT
 echo "=== bringing up the policy-free relay stack ==="
 docker compose up --build -d kea relay
 
-# Wait for the kea control socket then zero its counters for this phase.
+# Wait for the relay to log its startup banner before running any client assertions.
+relay_ready
+
+# Wait for the kea control socket then zero its counters and wipe leases for this phase.
 kea_ready
 kea_reset_stats
 
@@ -48,7 +52,5 @@ expect_lease client-denied
 echo "=== kea ground truth: exactly the two relayed clients hold leases ==="
 assert_lease "$MAC_BLOCKED" "kea holds no lease for the second relayed client"
 assert_lease_count 2 "kea lease table does not hold exactly the two relayed clients"
-
-kea_report "classic relay"
 
 echo "=== classic relay e2e: success ==="

@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright The dhcp-relay Authors
 
+//go:build linux
+
 package dhcp
 
 import (
@@ -13,6 +15,7 @@ import (
 
 // RFC 3396: "...the encoding agent MUST either use this algorithm or not send the option at all."
 // https://www.rfc-editor.org/rfc/rfc3396.html (Encoding Long Options in the DHCPv4)
+// DeleteSplitOptions filters RFC 3396 split options in place mutating the backing array and returning a sub slice of it.
 func DeleteSplitOptions(options ...layers.DHCPOption) []layers.DHCPOption {
 	optionCount := make(map[byte]int, len(options))
 
@@ -27,16 +30,19 @@ func DeleteSplitOptions(options ...layers.DHCPOption) []layers.DHCPOption {
 	i := 0
 
 	for _, option := range options {
+		if option.Type == layers.DHCPOptEnd {
+			options[i] = option
+			i++
+
+			break
+		}
+
 		if option.Type == layers.DHCPOptPad || optionCount[byte(option.Type)] != 1 {
 			continue
 		}
 
 		options[i] = option
 		i++
-
-		if option.Type == layers.DHCPOptEnd {
-			break
-		}
 	}
 
 	return options[:i]
@@ -57,24 +63,16 @@ func GetOption(layerDHCPv4 *layers.DHCPv4, optionType layers.DHCPOpt) layers.DHC
 }
 
 func DeleteOption(layerDHCPv4 *layers.DHCPv4, optionType layers.DHCPOpt) {
-	idx := slices.IndexFunc(layerDHCPv4.Options, func(opt layers.DHCPOption) bool {
+	layerDHCPv4.Options = slices.DeleteFunc(layerDHCPv4.Options, func(opt layers.DHCPOption) bool {
 		return opt.Type == optionType
 	})
-	if idx < 0 {
-		return
-	}
-
-	layerDHCPv4.Options = slices.Delete(layerDHCPv4.Options, idx, idx+1)
 }
 
 func SetOption(layerDHCPv4 *layers.DHCPv4, newOption layers.DHCPOption) {
-	for i, opt := range layerDHCPv4.Options {
-		if opt.Type == newOption.Type {
-			layerDHCPv4.Options[i] = newOption
-
-			return
-		}
-	}
+	// Remove every RFC 3396 split fragment of this type before appending the unified replacement.
+	layerDHCPv4.Options = slices.DeleteFunc(layerDHCPv4.Options, func(opt layers.DHCPOption) bool {
+		return opt.Type == newOption.Type
+	})
 
 	layerDHCPv4.Options = append(layerDHCPv4.Options, newOption)
 
@@ -91,7 +89,11 @@ func GetMessageType(layerDHCPv4 *layers.DHCPv4) string {
 
 	val := layers.DHCPMsgType(opt53.Data[0])
 
-	if val <= layers.DHCPMsgTypeUnspecified || val > layers.DHCPMsgTypeInform {
+	switch val {
+	case layers.DHCPMsgTypeDiscover, layers.DHCPMsgTypeOffer, layers.DHCPMsgTypeRequest,
+		layers.DHCPMsgTypeDecline, layers.DHCPMsgTypeAck, layers.DHCPMsgTypeNak,
+		layers.DHCPMsgTypeRelease, layers.DHCPMsgTypeInform:
+	default:
 		return ""
 	}
 

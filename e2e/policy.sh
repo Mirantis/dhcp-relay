@@ -10,6 +10,7 @@ cd "$(dirname "$0")"
 
 # Relay service that watches the policy file. See compose.yaml.
 RELAY_SVC="relay-policy"
+KEA_REPORT_TITLE="functional: MAC-policy relay (per-client decisions + hot reload)"
 
 # shellcheck source-path=SCRIPTDIR
 # shellcheck source=lib.sh
@@ -29,6 +30,9 @@ EOF
 
 echo "=== bringing up the policy relay stack ==="
 docker compose up --build -d kea relay-policy
+
+# Wait for the relay to log its startup banner before running any client assertions.
+relay_ready
 
 # Wait for the kea control socket then zero its counters for this phase.
 kea_ready
@@ -109,7 +113,5 @@ assert_delta_pos "$discover_before" "$(kea_stat pkt4-discover-received)" \
   "the Option 61 client's DISCOVER never reached kea (forward broken, not the reply)"
 assert_delta_pos "$offer_before" "$(kea_stat pkt4-offer-sent)" \
   "kea never offered for the Option 61 client"
-
-kea_report "MAC policy"
 
 echo "=== mac policy e2e: success ==="
