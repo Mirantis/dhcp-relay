@@ -29,6 +29,20 @@ x-client-base: &client-base
     - NET_ADMIN
   entrypoint: ["udhcpc"]
 
+# Shared netns sidecar anchor. Each init shares a relay netns to add or flush a client-net address.
+# The distroless relay image has no shell or ip tool so a sidecar does it.
+x-netinit-base: &netinit-base
+  build:
+    context: .
+    dockerfile_inline: |
+      FROM debian:13-slim
+      RUN apt-get update \
+       && apt-get install -y --no-install-recommends iproute2 \
+       && rm -rf /var/lib/apt/lists/*
+  image: dhcp-relay-netinit:e2e
+  cap_add:
+    - NET_ADMIN
+
 services:
   kea:
     build:
@@ -36,7 +50,7 @@ services:
       dockerfile_inline: |
         FROM debian:13-slim
         RUN apt-get update \
-         && apt-get install -y --no-install-recommends kea-dhcp4-server socat \
+         && apt-get install -y --no-install-recommends kea-dhcp4-server \
          && rm -rf /var/lib/apt/lists/* \
          && mkdir -p /run/kea
         COPY --chmod=0755 kea-entrypoint.sh /usr/local/bin/kea-entrypoint.sh
@@ -50,6 +64,9 @@ services:
       - source: kea-dhcp4
         target: /etc/kea/kea-dhcp4.conf
         mode: 0444
+    # Bind mount the control socket dir so the pytest harness reaches it over AF_UNIX (replaces socat).
+    volumes:
+      - ./run-kea:/run/kea
     networks:
       server-net:
         ipv4_address: 10.99.0.3
@@ -87,26 +104,17 @@ services:
       - dhcp-relay
       - -dhcp-server-address=kea
       - -link-map=/etc/dhcp-relay/link-map.txt
+      - -link-map-interval=1s
       - -debug
       - -log-no-datetime
     volumes:
       - ./linkmap:/etc/dhcp-relay
 
   # Shares the relay netns and strips the client-net IPv4 so the relay sees an unnumbered ingress. Exits after flushing.
-  # The distroless relay image has no shell or ip tool so a sidecar does the flush.
   relay-unnumbered-init:
-    build:
-      context: .
-      dockerfile_inline: |
-        FROM debian:13-slim
-        RUN apt-get update \
-         && apt-get install -y --no-install-recommends iproute2 \
-         && rm -rf /var/lib/apt/lists/*
-    image: dhcp-relay-netinit:e2e
+    <<: *netinit-base
     profiles: ["unnumbered"]
     network_mode: "service:relay-unnumbered"
-    cap_add:
-      - NET_ADMIN
     depends_on:
       relay-unnumbered:
         condition: service_started
@@ -172,6 +180,134 @@ services:
     networks:
       server-net: {}
 
+  # Release client. Applies its lease and a host route to the server via the relay so the
+  # unicast RELEASE udhcpc sends on quit traverses the relay. Uses the numbered classic relay.
+  client-release:
+    image: busybox:latest
+    profiles: ["probe"]
+    cap_add:
+      - NET_RAW
+      - NET_ADMIN
+    entrypoint: ["/bin/sh", "/run-release.sh"]
+    volumes:
+      - ./udhcpc-release.sh:/release.sh:ro
+      - ./udhcpc-run-release.sh:/run-release.sh:ro
+    networks:
+      client-net:
+        mac_address: "02:00:00:00:00:06"
+
+  # Unnumbered relay with an explicit giaddr override. Mutually exclusive profile so it reuses the
+  # relay static addresses. giaddr is forced to a value the relay does not own to prove the override.
+  relay-unnumbered-giaddr:
+    <<: *relay-base
+    profiles: ["giaddr"]
+    command:
+      - dhcp-relay
+      - -dhcp-server-address=kea
+      - -link-map=/etc/dhcp-relay/link-map.txt
+      - -giaddr=203.0.113.1
+      - -debug
+      - -log-no-datetime
+    volumes:
+      - ./linkmap:/etc/dhcp-relay
+
+  # Flushes the client-net IPv4 for the giaddr variant, same role as relay-unnumbered-init.
+  relay-unnumbered-giaddr-init:
+    <<: *netinit-base
+    profiles: ["giaddr"]
+    network_mode: "service:relay-unnumbered-giaddr"
+    depends_on:
+      relay-unnumbered-giaddr:
+        condition: service_started
+    command:
+      - /bin/sh
+      - -c
+      - |
+        ip -4 addr flush to 192.168.50.0/24
+        echo "unnumbered-init: flushed client-net IPv4"
+
+  # Chained-relay hop limit. -max-hops 1 makes a single already-relayed hop (perfdhcp) trip the drop.
+  relay-maxhops:
+    <<: *relay-base
+    profiles: ["maxhops"]
+    command:
+      - dhcp-relay
+      - -dhcp-server-address=kea
+      - -max-hops=1
+      - -debug
+      - -log-no-datetime
+
+  # Numbered relay whose ingress NIC gets a second IPv4 from the init below so the relay relays one
+  # copy per address. Mutually exclusive profile reuses the relay static addresses.
+  relay-multihomed:
+    <<: *relay-base
+    profiles: ["multihomed"]
+    command:
+      - dhcp-relay
+      - -dhcp-server-address=kea
+      - -debug
+      - -log-no-datetime
+
+  # Adds a second client-net IPv4 to the multihomed relay then exits.
+  relay-multihomed-init:
+    <<: *netinit-base
+    profiles: ["multihomed"]
+    network_mode: "service:relay-multihomed"
+    depends_on:
+      relay-multihomed:
+        condition: service_started
+    command:
+      - /bin/sh
+      - -c
+      - |
+        dev=$$(ip -4 -o addr show to 192.168.50.0/24 | awk '{print $$2}' | head -1)
+        ip -4 addr add 192.168.50.5/24 dev "$$dev"
+        echo "multihomed-init: added second client-net IPv4 on $$dev"
+
+  # Second DHCP server for the per-client forward test. Same image and config as kea at a distinct address.
+  kea2:
+    image: dhcp-relay-kea:e2e
+    profiles: ["twoserver"]
+    environment:
+      KEA_TEST_SEND_RESPONSES_TO_SOURCE: ENABLE
+    configs:
+      - source: kea-dhcp4
+        target: /etc/kea/kea-dhcp4.conf
+        mode: 0444
+    networks:
+      server-net:
+        ipv4_address: 10.99.0.4
+
+  # Relay that forwards one client to kea2 by policy and everyone else to the default server.
+  relay-twoserver:
+    <<: *relay-base
+    profiles: ["twoserver"]
+    command:
+      - dhcp-relay
+      - -dhcp-server-address=kea
+      - -mac-policy=/etc/dhcp-relay/policy.txt
+      - -mac-policy-interval=1s
+      - -debug
+      - -log-no-datetime
+    volumes:
+      - ./macpolicy:/etc/dhcp-relay
+    depends_on:
+      kea:
+        condition: service_started
+      kea2:
+        condition: service_started
+
+  # Crafts an INIT-REBOOT DHCPREQUEST for an out-of-subnet address to force a NAK from kea.
+  nak-client:
+    image: python:3-alpine
+    profiles: ["probe"]
+    entrypoint: ["python3", "/nak-request.py"]
+    volumes:
+      - ./nak-request.py:/nak-request.py:ro
+    networks:
+      client-net:
+        mac_address: "02:00:00:00:00:07"
+
 networks:
   client-net:
     driver: bridge
@@ -197,6 +333,7 @@ configs:
           "lease-database": { "type": "memfile", "persist": false },
           "store-extended-info": true,
           "echo-client-id": false,
+          "authoritative": true,
           "hooks-libraries": [
             { "library": "@HOOKS_DIR@/libdhcp_lease_cmds.so" },
             { "library": "@HOOKS_DIR@/libdhcp_stat_cmds.so" }

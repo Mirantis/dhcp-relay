@@ -1,0 +1,32 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright The dhcp-relay Authors
+
+[project]
+name = "dhcp-relay-e2e"
+version = "0"
+description = "End-to-end test harness for the DHCPv4 relay agent."
+requires-python = ">=3.14"
+
+[dependency-groups]
+# Installed with: uv sync --group e2e
+e2e = [
+    "pytest>=8",
+    "pytest-timeout>=2.3",
+    "black>=25",
+]
+
+[tool.uv]
+# The harness is a test suite, not an installable package.
+package = false
+
+[tool.black]
+line-length = 120
+target-version = ["py314"]
+
+[tool.pytest.ini_options]
+testpaths = ["e2e"]
+python_files = ["test_*.py"]
+# -s disables output capture so step banners and the relay/kea log dumps stream to the CI console.
+addopts = "-ra -s"
+# Backstop only. The poll helpers keep their own 15s/30s caps; this catches a hung docker call.
+timeout = 1200

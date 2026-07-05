@@ -26,4 +26,10 @@ hooks_dir="$(dirname "${lease_cmds}")"
 sed "s#@HOOKS_DIR@#${hooks_dir}#g" /etc/kea/kea-dhcp4.conf > /run/kea/kea-dhcp4.conf
 chmod 0640 /run/kea/kea-dhcp4.conf
 
+# Kea creates the control socket after startup. Relax it so a non root host user
+# reaches it over the bind mounted directory.
+( sock=/run/kea/kea4-ctrl-socket
+  while [ ! -S "${sock}" ]; do sleep 0.1; done
+  chmod 0666 "${sock}" ) &
+
 exec /usr/sbin/kea-dhcp4 -c /run/kea/kea-dhcp4.conf

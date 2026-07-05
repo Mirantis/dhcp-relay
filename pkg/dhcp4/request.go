@@ -185,6 +185,8 @@ func HandleGenericRequest(
 	send := func(giaddr net.IP) error {
 		layerDHCPv4.RelayAgentIP = giaddr
 
+		cfg.Logger.Debugf("Relaying under giaddr=%s\n", giaddr)
+
 		buffer := gopacket.NewSerializeBuffer()
 
 		if err := gopacket.SerializeLayers(

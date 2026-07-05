@@ -33,6 +33,17 @@ jobs:
       - name: Check out source code
         uses: actions/checkout@v7
 
+      - name: Install uv
+        run: |
+          curl -LsSf https://astral.sh/uv/install.sh | sh
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+      - name: Install e2e deps
+        run: uv sync --group e2e
+
+      - name: Prebuild e2e images
+        run: make test-e2e-build
+
       - name: Classic relay e2e
         run: make test-e2e-relay
 
@@ -41,6 +52,39 @@ jobs:
 
       - name: Unnumbered relay e2e
         run: make test-e2e-unnumbered
+
+      - name: Policy reload robustness e2e
+        run: make test-e2e-policy-reload
+
+      - name: Link-map NIC selector e2e
+        run: make test-e2e-linkmap
+
+      - name: Giaddr override e2e
+        run: make test-e2e-giaddr
+
+      - name: DHCP release e2e
+        run: make test-e2e-release
+
+      - name: Broadcast-flag reply e2e
+        run: make test-e2e-broadcast
+
+      - name: Chained relay + hops e2e
+        run: make test-e2e-chained
+
+      - name: Multi-homed ingress e2e
+        run: make test-e2e-multihomed
+
+      - name: Startup validation e2e
+        run: make test-e2e-startup
+
+      - name: Link-map reload e2e
+        run: make test-e2e-linkmap-reload
+
+      - name: Two-server forward e2e
+        run: make test-e2e-twoserver
+
+      - name: NAK relay e2e
+        run: make test-e2e-nak
 
   benchmark:
     name: Benchmark
@@ -56,6 +100,17 @@ jobs:
     steps:
       - name: Check out source code
         uses: actions/checkout@v7
+
+      - name: Install uv
+        run: |
+          curl -LsSf https://astral.sh/uv/install.sh | sh
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+      - name: Install e2e deps
+        run: uv sync --group e2e
+
+      - name: Prebuild benchmark images
+        run: make test-e2e-bench-build
 
       - name: Benchmark classic relay (short debug)
         continue-on-error: true
